@@ -3,68 +3,160 @@ use crate::protocol::{ClientMessage, ServerMessage, WebSocketFrame, WebSocketHan
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
+use std::future::Future;
+use std::task::{Context, Poll};
+use std::pin::Pin;
 
 // ============================================================================
-// SERVIDOR DE JOGOS
+// SERVIDOR DE JOGOS ASSÍNCRONO
 // ============================================================================
 
 pub struct GameServer {
-    pub games: Arc<Mutex<HashMap<String, GameState>>>,
+    pub games: HashMap<String, GameState>, // client_id -> gamestate
+    pub clients: HashMap<String, ClientConnection>, // client_id -> client_connection
+}
+
+pub struct ClientConnection {
+    id: String,
+    stream: TcpStream,
+    last_update: Instant,
+}
+
+// Future para o servidor principal
+struct AsyncGameServer<'a> {
+    server: &'a mut GameServer,
+    address: String,
+    listener: Option<TcpListener>,
+    last_game_update: Instant,
+    game_speed: Duration,
 }
 
 impl GameServer {
     pub fn new() -> Self {
         GameServer {
-            games: Arc::new(Mutex::new(HashMap::new())),
+            games: HashMap::new(),
+            clients: HashMap::new(),
         }
     }
 
-    pub fn run(&self, address: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let listener = TcpListener::bind(address)?;
-        println!("Servidor Snake rodando em http://{}", address);
-        println!("Abra http://{} no navegador para jogar!", address);
+    pub fn run(&mut self, address: &str) -> impl Future<Output = Result<(), Box<dyn std::error::Error>>> + '_ {
+        AsyncGameServer {
+            server: self,
+            address: address.to_string(),
+            listener: None,
+            last_game_update: Instant::now(),
+            game_speed: Duration::from_millis(200),
+        }
+    }
+}
 
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    let server_clone = GameServer {
-                        games: Arc::clone(&self.games),
-                    };
+impl<'a> Future for AsyncGameServer<'a> {
+    type Output = Result<(), Box<dyn std::error::Error>>;
 
-                    thread::spawn(move || {
-                        if let Err(e) = server_clone.handle_client(stream) {
-                            eprintln!("Erro ao processar cliente: {}", e);
-                        }
-                    });
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Inicializa o listener se ainda não foi criado
+        if self.listener.is_none() {
+            match TcpListener::bind(&self.address) {
+                Ok(listener) => {
+                    if let Err(e) = listener.set_nonblocking(true) {
+                        return Poll::Ready(Err(Box::new(e)));
+                    }
+                    println!("Servidor Snake rodando em http://{}", self.address);
+                    println!("Abra http://{} no navegador para jogar!", self.address);
+                    self.listener = Some(listener);
                 }
-                Err(e) => {
-                    eprintln!("Erro ao aceitar conexão: {}", e);
-                }
+                Err(e) => return Poll::Ready(Err(Box::new(e))),
             }
         }
 
-        Ok(())
+        // Aceita novas conexões
+        let mut stream_addr_to_handle = Vec::new();
+        if let Some(ref listener) = self.listener {
+            loop {
+                match listener.accept() {
+                    Ok((stream, addr)) => {
+                        println!("Novo cliente conectado de: {:?}", addr);
+                        stream_addr_to_handle.push(
+                            (stream, addr)
+                        );
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        break; // Sem novas conexões
+                    }
+                    Err(e) => {
+                        eprintln!("Erro ao aceitar conexão: {}", e);
+                        break;
+                    }
+                }
+            }
+        }
+        for stream_addr in stream_addr_to_handle {
+            if let Err(e) = self.server.handle_new_client(stream_addr.0) {
+                eprintln!("Erro ao processar novo cliente: {}", e);
+            }
+        }
+
+
+        // Processa mensagens dos clientes
+        if let Err(e) = self.server.process_client_messages() {
+            eprintln!("Erro ao processar mensagens: {}", e);
+        }
+
+        // Atualiza jogos periodicamente
+        if self.last_game_update.elapsed() >= self.game_speed {
+            if let Err(e) = self.server.update_all_games() {
+                return Poll::Ready(Err(e));
+            }
+            
+            if let Err(e) = self.server.send_all_game_states() {
+                eprintln!("Erro ao enviar estados do jogo: {}", e);
+            }
+            
+            self.last_game_update = Instant::now();
+        }
+
+        // Mantém o servidor rodando
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
+}
 
-    fn handle_client(&self, mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Cliente conectado: {:?}", stream.peer_addr()?);
-
+impl GameServer {
+    fn handle_new_client(&mut self, mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+        if let Err(e) = stream.set_nonblocking(true) {
+            return Err(Box::new(e));
+        }
+        
         let mut buffer = [0; 1024];
-        let bytes_read = stream.read(&mut buffer)?;
-        let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-
-        if request.contains("Upgrade: websocket") {
-            self.handle_websocket_connection(stream, &request)
-        } else {
-            self.handle_http_request(&mut stream, &request)
+        match stream.read(&mut buffer) {
+            Ok(bytes_read) => {
+                let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+                
+                if request.contains("Upgrade: websocket") {
+                    self.handle_websocket_connection(stream, &request)
+                } else {
+                    self.handle_http_request(&mut stream, &request)
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // Adiciona à lista para processar depois
+                let client_id = format!("{:?}", stream.peer_addr()?);
+                let client = ClientConnection {
+                    id: client_id.clone(),
+                    stream,
+                    last_update: Instant::now(),
+                };
+                
+                self.clients.insert(client_id, client);
+                Ok(())
+            }
+            Err(e) => Err(Box::new(e)),
         }
     }
 
     fn handle_websocket_connection(
-        &self,
+        &mut self,
         mut stream: TcpStream,
         request: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -76,96 +168,93 @@ impl GameServer {
             println!("WebSocket handshake realizado com sucesso");
         }
 
-        // Gerencia o cliente WebSocket
-        self.handle_websocket_client(stream)
-    }
-
-    fn handle_websocket_client(&self, mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
         let client_id = format!("{:?}", stream.peer_addr()?);
         
         // Cria novo jogo para o cliente
         {
-            let mut games = self.games.lock().unwrap();
-            games.insert(client_id.clone(), GameState::new(20, 15));
+            self.games.insert(client_id.clone(), GameState::new(20, 15));
         }
+
+
+        // Adiciona cliente à lista
+        let client = ClientConnection {
+            id: client_id.clone(),
+            stream,
+            last_update: Instant::now(),
+        };
 
         // Envia mensagem de conexão bem-sucedida
         let welcome_msg = ServerMessage::connected(client_id.clone());
-        self.send_message(&mut stream, &welcome_msg)?;
+        self.send_message(&client_id, &welcome_msg)?;
 
-        let mut last_update = Instant::now();
-        let game_speed = Duration::from_millis(200);
-
-        loop {
-            // Lê mensagens do cliente (non-blocking)
-            if let Some(message) = self.read_client_message(&mut stream)? {
-                if !self.handle_client_message(&client_id, &message)? {
-                    break; // Cliente desconectou
-                }
-            }
-
-            // Atualiza jogo periodicamente
-            if last_update.elapsed() >= game_speed {
-                self.update_game(&client_id)?;
-                self.send_game_state(&mut stream, &client_id)?;
-                last_update = Instant::now();
-            }
-
-            thread::sleep(Duration::from_millis(10));
-        }
-
-        // Cleanup quando cliente desconecta
-        {
-            let mut games = self.games.lock().unwrap();
-            games.remove(&client_id);
-        }
-        println!("Cliente {} desconectado", client_id);
+        self.clients.insert(client_id, client);
 
         Ok(())
     }
 
-    fn read_client_message(&self, stream: &mut TcpStream) -> Result<Option<String>, Box<dyn std::error::Error>> {
-        stream.set_nonblocking(true)?;
-        let mut buffer = [0; 1024];
+    fn process_client_messages(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut clients_to_remove : Vec<String> = Vec::new();
+        let client_ids : Vec<String> = self.clients.keys().cloned().collect();
+
+        for client_id in client_ids {
+            let message = self.read_client_message(&client_id);
+            match message {
+                Ok(Some(message)) => {
+                    if !message.is_empty() {
+                        if !self.handle_client_message(&client_id, &message)? {
+                            clients_to_remove.push(client_id.clone());
+                        }
+                    }
+                }
+                Ok(None) => {
+                    // Cliente desconectou
+                    clients_to_remove.push(client_id.clone());
+                    println!("Client {} has disconnected", client_id);
+                }
+                Err(_) => {
+                    clients_to_remove.push(client_id.clone());
+                    println!("Client {} has disconnected because error", client_id);
+                }
+            }
+        }
         
+        for client_id in clients_to_remove {
+            self.clients.remove(&client_id);
+        }
+
+        Ok(())
+    }
+
+    fn read_client_message(&mut self, client_id: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        let mut buffer = [0; 1024];
+        let mut stream = &mut self.clients.get_mut(client_id).unwrap().stream;
         match stream.read(&mut buffer) {
             Ok(0) => Ok(None), // Cliente desconectou
             Ok(bytes_read) => {
-                stream.set_nonblocking(false)?;
                 Ok(WebSocketFrame::parse(&buffer[..bytes_read]))
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                stream.set_nonblocking(false)?;
                 Ok(Some(String::new())) // Sem dados, mas cliente ainda conectado
             }
-            Err(e) => {
-                stream.set_nonblocking(false)?;
-                Err(Box::new(e))
-            }
+            Err(e) => Err(Box::new(e)),
         }
     }
 
     fn handle_client_message(
-        &self,
+        &mut self,
         client_id: &str,
         message: &str,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        if message.is_empty() {
-            return Ok(true); // Mensagem vazia, mas cliente ainda conectado
-        }
-
         match serde_json::from_str::<ClientMessage>(message) {
             Ok(client_msg) => {
                 match client_msg {
                     ClientMessage::Input { direction } => {
-                        let mut games = self.games.lock().unwrap();
-                        if let Some(game) = games.get_mut(client_id) {
+                        if let Some(game) = self.games.get_mut(client_id) {
                             game.handle_input(direction);
                         }
                     }
                     ClientMessage::ResetGame => {
-                        let mut games = self.games.lock().unwrap();
-                        if let Some(game) = games.get_mut(client_id) {
+                        if let Some(game) = self.games.get_mut(client_id) {
                             game.reset();
                         }
                     }
@@ -185,37 +274,42 @@ impl GameServer {
         }
     }
 
-    fn update_game(&self, client_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let mut games = self.games.lock().unwrap();
-        if let Some(game) = games.get_mut(client_id) {
+    fn update_all_games(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        for game in self.games.values_mut() {
             game.update();
         }
         Ok(())
     }
 
-    fn send_game_state(&self, stream: &mut TcpStream, client_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let games = self.games.lock().unwrap();
-        if let Some(game) = games.get(client_id) {
-            let message = ServerMessage::game_state(game.clone());
-            self.send_message(stream, &message)
-        } else {
-            Ok(())
+    fn send_all_game_states(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        
+        let mut client_ids_with_message = Vec::new();
+        {
+            for it in self.clients.iter() {
+                if self.games.contains_key(it.0) {
+                    client_ids_with_message.push(
+                        (
+                            it.0.clone(),
+                            ServerMessage::game_state(self.games.get(it.0).unwrap().clone())
+                        )
+                    );
+                }
+            }
         }
-    }
-
-    fn send_message(&self, stream: &mut TcpStream, message: &ServerMessage) -> Result<(), Box<dyn std::error::Error>> {
-        let json = serde_json::to_string(message)?;
-        let frame = WebSocketFrame::new(&json);
-        stream.write_all(&frame.to_bytes())?;
+        for (client_id, msg) in client_ids_with_message {
+            self.send_message(&client_id, &msg);
+        }
         Ok(())
     }
-}
 
-// ============================================================================
-// SERVIDOR HTTP SIMPLES
-// ============================================================================
+    fn send_message(&mut self, client_id: &str, message: &ServerMessage) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(message)?;
+        let frame = WebSocketFrame::new(&json);
+        let client = self.clients.get_mut(client_id).unwrap();
+        &mut client.stream.write_all(&frame.to_bytes())?;
+        Ok(())
+    }
 
-impl GameServer {
     fn handle_http_request(&self, stream: &mut TcpStream, request: &str) -> Result<(), Box<dyn std::error::Error>> {
         let first_line = request.lines().next().unwrap_or("Requisição inválida");
         println!("Requisição HTTP: {}", first_line);
