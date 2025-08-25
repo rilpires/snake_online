@@ -194,11 +194,7 @@ impl GameServer {
             let message = self.read_client_message(&client_id);
             match message {
                 Ok(Some(message)) => {
-                    if !message.is_empty() {
-                        if !self.handle_client_message(&client_id, &message)? {
-                            clients_to_remove.push(client_id.clone());
-                        }
-                    }
+                    self.handle_client_message(&client_id, &message)
                 }
                 Ok(None) => {
                     // Nothing
@@ -218,7 +214,7 @@ impl GameServer {
         Ok(())
     }
 
-    fn read_client_message(&mut self, client_id: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    fn read_client_message(&mut self, client_id: &str) -> Result<Option<ClientMessage>, Box<dyn std::error::Error>> {
         let mut buffer = [0; 1024];
         let mut stream = &mut self.clients.get_mut(client_id).unwrap().stream;
         match stream.read(&mut buffer) {
@@ -226,13 +222,19 @@ impl GameServer {
             Ok(bytes_read) => {
                 match WebSocketFrame::parse(&buffer[..bytes_read]) {
                     Ok(str) => {
-                        return Result::Ok(Option::Some(str));
+                        if str.is_empty() {
+                            return Ok(None);
+                        }
+                        match serde_json::from_str::<ClientMessage>(str.as_str()) {
+                            Ok(msg) => Ok(Some(msg)),
+                            Err(err) => Err(Box::new(err))
+                        }
                     },
                     Err(err) => Err(Box::new(err)),
                 }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                Ok(Some(String::new())) // Sem dados, mas cliente ainda conectado
+                Ok(None) // Sem dados, mas cliente ainda conectado
             }
             Err(e) => Err(Box::new(e)),
         }
@@ -241,36 +243,27 @@ impl GameServer {
     fn handle_client_message(
         &mut self,
         client_id: &str,
-        message: &str,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        match serde_json::from_str::<ClientMessage>(message) {
-            Ok(client_msg) => {
-                match client_msg {
-                    ClientMessage::Input { direction } => {
-                        if let Some(game) = self.games.get_mut(client_id) {
-                            game.handle_input(direction);
-                        }
-                    }
-                    ClientMessage::ResetGame => {
-                        if let Some(game) = self.games.get_mut(client_id) {
-                            game.reset();
-                        }
-                    }
-                    ClientMessage::JoinGame => {
-                        self.games.insert(
-                            client_id.to_string(),
-                            GameState::new(32, 32),
-                        );
-                    }
-                    ClientMessage::Ping => {
-                        // Pong será enviado automaticamente
-                    }
+        message: &ClientMessage,
+    ) {
+        match message {
+            ClientMessage::Input { direction } => {
+                if let Some(game) = self.games.get_mut(client_id) {
+                    game.handle_input(*direction);
                 }
-                Ok(true)
             }
-            Err(e) => {
-                eprintln!("Erro ao parsear mensagem de {}: {} - {}", client_id, message, e);
-                Ok(true) // Continua mesmo com erro de parsing
+            ClientMessage::ResetGame => {
+                if let Some(game) = self.games.get_mut(client_id) {
+                    game.reset();
+                }
+            }
+            ClientMessage::JoinGame => {
+                self.games.insert(
+                    client_id.to_string(),
+                    GameState::new(32, 32),
+                );
+            }
+            ClientMessage::Ping => {
+                // Pong será enviado automaticamente
             }
         }
     }
