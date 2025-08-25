@@ -227,6 +227,9 @@
             while (logsDiv.children.length > 50) {
                 logsDiv.removeChild(logsDiv.firstChild);
             }
+
+            // also console log
+            console.log(message);
         }
 
         // ============================================================================
@@ -266,6 +269,8 @@
             
             ws.onerror = function(error) {
                 addLog(`Erro de conexão: ${error}`, 'error');
+                console.error(error);
+                console.error(error.message)
                 setConnectedState(false);
             };
         }

@@ -1,7 +1,7 @@
 use crate::game::GameState;
 use crate::protocol::{ClientMessage, ServerMessage, WebSocketFrame, WebSocketHandler};
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{Error, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 use std::future::Future;
@@ -170,12 +170,6 @@ impl GameServer {
 
         let client_id = format!("{:?}", stream.peer_addr()?);
         
-        // Cria novo jogo para o cliente
-        {
-            self.games.insert(client_id.clone(), GameState::new(20, 15));
-        }
-
-
         // Adiciona cliente à lista
         let client = ClientConnection {
             id: client_id.clone(),
@@ -185,9 +179,9 @@ impl GameServer {
 
         // Envia mensagem de conexão bem-sucedida
         let welcome_msg = ServerMessage::connected(client_id.clone());
-        self.send_message(&client_id, &welcome_msg)?;
 
-        self.clients.insert(client_id, client);
+        self.clients.insert(client_id.to_string(), client);
+        self.send_message(client_id.as_str(), &welcome_msg)?;
 
         Ok(())
     }
@@ -207,13 +201,12 @@ impl GameServer {
                     }
                 }
                 Ok(None) => {
-                    // Cliente desconectou
-                    clients_to_remove.push(client_id.clone());
-                    println!("Client {} has disconnected", client_id);
+                    // Nothing
+                    println!("not a valid websocket message?");
                 }
-                Err(_) => {
+                Err(err) => {
                     clients_to_remove.push(client_id.clone());
-                    println!("Client {} has disconnected because error", client_id);
+                    println!("Client {} has disconnected because error: {}", client_id, err.to_string());
                 }
             }
         }
@@ -229,9 +222,14 @@ impl GameServer {
         let mut buffer = [0; 1024];
         let mut stream = &mut self.clients.get_mut(client_id).unwrap().stream;
         match stream.read(&mut buffer) {
-            Ok(0) => Ok(None), // Cliente desconectou
+            Ok(0) => Ok(None),
             Ok(bytes_read) => {
-                Ok(WebSocketFrame::parse(&buffer[..bytes_read]))
+                match WebSocketFrame::parse(&buffer[..bytes_read]) {
+                    Ok(str) => {
+                        return Result::Ok(Option::Some(str));
+                    },
+                    Err(err) => Err(Box::new(err)),
+                }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 Ok(Some(String::new())) // Sem dados, mas cliente ainda conectado
@@ -259,7 +257,10 @@ impl GameServer {
                         }
                     }
                     ClientMessage::JoinGame => {
-                        // Cliente já tem jogo criado
+                        self.games.insert(
+                            client_id.to_string(),
+                            GameState::new(32, 32),
+                        );
                     }
                     ClientMessage::Ping => {
                         // Pong será enviado automaticamente
@@ -306,7 +307,7 @@ impl GameServer {
         let json = serde_json::to_string(message)?;
         let frame = WebSocketFrame::new(&json);
         let client = self.clients.get_mut(client_id).unwrap();
-        &mut client.stream.write_all(&frame.to_bytes())?;
+        &mut client.stream.write_all(&frame.to_websocket())?;
         Ok(())
     }
 
