@@ -1,44 +1,60 @@
-use snake_online::GameServer;
-use std::future::Future;
-use std::task::{Context, Poll, Waker};
+use std::{net::TcpListener, time::Duration};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Executor simples para rodar futures
-    let mut server = GameServer::new();
-    block_on(server.run("127.0.0.1:8080"))
+use snake_online::{network::ClientConnection, GameServer};
+
+// Função helper para criar setInterval
+fn set_interval<F, Fut>(duration: Duration, mut f: F) -> tokio::task::JoinHandle<()> 
+where
+    F: FnMut() -> Fut + 'static + Send,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    tokio::spawn(async move {
+        loop {
+            f().await;
+            tokio::time::sleep(duration).await;
+        }
+    })
 }
 
-// Executor simples que bloqueia até o future completar
-fn block_on<T>(future: impl Future<Output = T>) -> T {
-    let mut future = Box::pin(future);
-    let waker = create_waker();
-    let mut cx = Context::from_waker(&waker);
+async fn mainloop() {
+    println!("hello motherfuckers, this is the mainloop")
+}
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let address = "127.0.0.1:8080";
+    let mut server = GameServer::new();
+    let mut games = server.games;
+    let mut clients = server.clients;
+    let mut tcp_listener = tokio::net::TcpListener::bind(address).await.expect(format!("Error binding to {address}").as_str());
+    let mut game_timer = tokio::time::interval(Duration::from_millis(200));
+    
+    let mut client_futures = FuturesUnordered::new();
     
     loop {
-        match future.as_mut().poll(&mut cx) {
-            Poll::Ready(value) => return value,
-            Poll::Pending => {
-                // Simples yield - em um executor real, aqui esperaríamos por I/O
-                std::thread::sleep(std::time::Duration::from_millis(1));
+        tokio::select! {
+            _ = game_timer.tick() => {
+                println!("🎮 Game update");
+                for game in games.values_mut() {
+                    game.update();
+                }
             }
-        }
-    }
-}
+    
+            
+            // Aceitando novas conexões
+            result = tcp_listener.accept() => {
+                match (result) {
+                    Ok((tcp_stream,addr)) => {
+                        clients.insert(
+                            addr.to_string(),
+                            ClientConnection::new(addr.to_string().as_str(),tcp_stream)
+                        );
+                    },
+                    Err(err) => println!("{err}"),
+                }
+            }
 
-fn create_waker() -> Waker {
-    use std::task::{RawWaker, RawWakerVTable};
-    
-    fn clone_waker(_: *const ()) -> RawWaker {
-        RawWaker::new(std::ptr::null(), &VTABLE)
-    }
-    
-    fn wake(_: *const ()) {}
-    fn wake_by_ref(_: *const ()) {}
-    fn drop_waker(_: *const ()) {}
-    
-    const VTABLE: RawWakerVTable = RawWakerVTable::new(clone_waker, wake, wake_by_ref, drop_waker);
-    
-    unsafe {
-        Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE))
+            // Recebendo dados de conexões existentes:
+            
+        }
     }
 }

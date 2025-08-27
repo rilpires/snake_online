@@ -1,12 +1,10 @@
+use tokio::net::TcpStream;
+
 use crate::game::GameState;
 use crate::protocol::{ClientMessage, ServerMessage, WebSocketFrame, WebSocketHandler};
 use std::collections::HashMap;
-use std::io::{Error, Read, Write};
-use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
-use std::future::Future;
-use std::task::{Context, Poll};
-use std::pin::Pin;
+
 
 // ============================================================================
 // SERVIDOR DE JOGOS ASSÍNCRONO
@@ -15,6 +13,9 @@ use std::pin::Pin;
 pub struct GameServer {
     pub games: HashMap<String, GameState>, // client_id -> gamestate
     pub clients: HashMap<String, ClientConnection>, // client_id -> client_connection
+    address: Option<String>,
+    last_game_update: Instant,
+    game_speed: Duration,
 }
 
 pub struct ClientConnection {
@@ -22,107 +23,24 @@ pub struct ClientConnection {
     stream: TcpStream,
     last_update: Instant,
 }
-
-// Future para o servidor principal
-struct AsyncGameServer<'a> {
-    server: &'a mut GameServer,
-    address: String,
-    listener: Option<TcpListener>,
-    last_game_update: Instant,
-    game_speed: Duration,
+impl ClientConnection {
+    pub fn new(id: &str, stream:TcpStream ) -> Self {
+        ClientConnection { id: id.to_string(), stream: stream, last_update: std::time::Instant::now() }
+    }
 }
+
 
 impl GameServer {
     pub fn new() -> Self {
         GameServer {
             games: HashMap::new(),
             clients: HashMap::new(),
-        }
-    }
-
-    pub fn run(&mut self, address: &str) -> impl Future<Output = Result<(), Box<dyn std::error::Error>>> + '_ {
-        AsyncGameServer {
-            server: self,
-            address: address.to_string(),
-            listener: None,
+            address: None,
             last_game_update: Instant::now(),
             game_speed: Duration::from_millis(200),
         }
     }
-}
 
-impl<'a> Future for AsyncGameServer<'a> {
-    type Output = Result<(), Box<dyn std::error::Error>>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Inicializa o listener se ainda não foi criado
-        if self.listener.is_none() {
-            match TcpListener::bind(&self.address) {
-                Ok(listener) => {
-                    if let Err(e) = listener.set_nonblocking(true) {
-                        return Poll::Ready(Err(Box::new(e)));
-                    }
-                    println!("Servidor Snake rodando em http://{}", self.address);
-                    println!("Abra http://{} no navegador para jogar!", self.address);
-                    self.listener = Some(listener);
-                }
-                Err(e) => return Poll::Ready(Err(Box::new(e))),
-            }
-        }
-
-        // Aceita novas conexões
-        let mut stream_addr_to_handle = Vec::new();
-        if let Some(ref listener) = self.listener {
-            loop {
-                match listener.accept() {
-                    Ok((stream, addr)) => {
-                        println!("Novo cliente conectado de: {:?}", addr);
-                        stream_addr_to_handle.push(
-                            (stream, addr)
-                        );
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        break; // Sem novas conexões
-                    }
-                    Err(e) => {
-                        eprintln!("Erro ao aceitar conexão: {}", e);
-                        break;
-                    }
-                }
-            }
-        }
-        for stream_addr in stream_addr_to_handle {
-            if let Err(e) = self.server.handle_new_client(stream_addr.0) {
-                eprintln!("Erro ao processar novo cliente: {}", e);
-            }
-        }
-
-
-        // Processa mensagens dos clientes
-        if let Err(e) = self.server.process_client_messages() {
-            eprintln!("Erro ao processar mensagens: {}", e);
-        }
-
-        // Atualiza jogos periodicamente
-        if self.last_game_update.elapsed() >= self.game_speed {
-            if let Err(e) = self.server.update_all_games() {
-                return Poll::Ready(Err(e));
-            }
-            
-            if let Err(e) = self.server.send_all_game_states() {
-                eprintln!("Erro ao enviar estados do jogo: {}", e);
-            }
-            
-            self.last_game_update = Instant::now();
-        }
-
-        // Mantém o servidor rodando
-        cx.waker().wake_by_ref();
-        Poll::Pending
-    }
-}
-
-impl GameServer {
     fn handle_new_client(&mut self, mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
         if let Err(e) = stream.set_nonblocking(true) {
             return Err(Box::new(e));
@@ -266,13 +184,6 @@ impl GameServer {
                 // Pong será enviado automaticamente
             }
         }
-    }
-
-    fn update_all_games(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        for game in self.games.values_mut() {
-            game.update();
-        }
-        Ok(())
     }
 
     fn send_all_game_states(&mut self) -> Result<(), Box<dyn std::error::Error>> {

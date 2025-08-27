@@ -158,7 +158,7 @@
             <span class="score">Pontuação: <span id="score">0</span></span>
         </div>
 
-        <canvas id="gameCanvas" width="400" height="300"></canvas>
+        <canvas id="gameCanvas" width="640" height="640"></canvas>
 
         <div class="controls">
             <button id="connectBtn">Conectar</button>
@@ -196,7 +196,7 @@
         
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const cellSize = 20;
+        const cellSize = 20; // 640/32 = 20 pixels por célula
         
         // Elementos DOM
         const statusDiv = document.getElementById('status');
@@ -256,9 +256,11 @@
                 try {
                     const message = JSON.parse(event.data);
                     addLog(`Recebido: ${event.data}`, 'received');
+                    console.log('Mensagem processada:', message);
                     handleServerMessage(message);
                 } catch (e) {
                     addLog(`Erro ao processar mensagem: ${e}`, 'error');
+                    console.error('Erro JSON:', e, 'Data:', event.data);
                 }
             };
             
@@ -341,7 +343,15 @@
         function handleServerMessage(message) {
             switch (message.type) {
                 case 'game_state':
-                    gameState = message;
+                    // O backend envia a estrutura completa do jogo
+                    gameState = {
+                        snake: message.snake,
+                        food: message.food,
+                        score: message.score,
+                        game_over: message.game_over,
+                        width: message.width,
+                        height: message.height
+                    };
                     updateUI();
                     drawGame();
                     break;
@@ -352,6 +362,10 @@
                     
                 case 'pong':
                     addLog('Pong recebido', 'received');
+                    break;
+                    
+                case 'connected':
+                    addLog(`Conectado com ID: ${message.client_id}`, 'received');
                     break;
             }
         }
@@ -385,6 +399,8 @@
                 return;
             }
             
+            console.log('Desenhando jogo:', gameState);
+            
             // Limpa canvas
             clearCanvas();
             
@@ -392,10 +408,14 @@
             drawGrid();
             
             // Desenha comida
-            drawFood();
+            if (gameState.food && gameState.food.position) {
+                drawFood();
+            }
             
             // Desenha cobra
-            drawSnake();
+            if (gameState.snake && gameState.snake.body) {
+                drawSnake();
+            }
             
             // Desenha game over se necessário
             if (gameState.game_over) {
@@ -423,6 +443,13 @@
         }
         
         function drawSnake() {
+            if (!gameState.snake || !gameState.snake.body) {
+                console.log('Sem dados da cobra para desenhar');
+                return;
+            }
+            
+            console.log('Desenhando cobra com', gameState.snake.body.length, 'segmentos');
+            
             gameState.snake.body.forEach((segment, index) => {
                 const x = segment.x * cellSize;
                 const y = segment.y * cellSize;
@@ -448,8 +475,15 @@
         }
         
         function drawFood() {
+            if (!gameState.food || !gameState.food.position) {
+                console.log('Sem dados da comida para desenhar');
+                return;
+            }
+            
             const x = gameState.food.position.x * cellSize;
             const y = gameState.food.position.y * cellSize;
+            
+            console.log('Desenhando comida em:', x, y);
             
             ctx.fillStyle = '#FF5722';
             ctx.fillRect(x, y, cellSize - 1, cellSize - 1);

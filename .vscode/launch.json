@@ -26,6 +26,7 @@
         {
             "type": "lldb",
             "request": "launch",
+            "preLaunchTask": "rust: cargo build",
             "name": "Debug executable 'snake_online'",
             "cargo": {
                 "args": [
