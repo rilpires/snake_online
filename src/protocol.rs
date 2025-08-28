@@ -11,7 +11,7 @@ use sha1::Digest;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum ClientMessage {
+pub enum ClientGameMessage {
     #[serde(rename = "join_game")]
     JoinGame,
     #[serde(rename = "input")]
