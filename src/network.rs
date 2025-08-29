@@ -99,6 +99,7 @@ impl GameServer {
                                         // all the proper router stuff goes here
                                         // we only have index.html kkkk
                                         if req.method == HttpMethod::GET && req.path.eq("/") {
+                                            println!("Sending index.html to {}", clientid);
                                             self.send_http_response(
                                                 clientid.as_str(),
                                                 HttpResponse::file_content("index.html")
@@ -201,7 +202,7 @@ impl HttpResponse {
             status_msg: "No shit".to_string(),
             headers: Self::default_headers(),
             body: None,
-        }
+        }.with_content_length(0)
     }
     pub fn file_content(filepath: &str) -> HttpResponse {
         match fs::read(filepath) {
