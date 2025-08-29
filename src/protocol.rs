@@ -1,13 +1,91 @@
-use std::io::{Error, Write};
+use std::{collections::HashMap, io::{Error, Write}, str::FromStr};
 
 use crate::game::{Direction, GameState};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sha1::Digest;
 
-// ============================================================================
-// MENSAGENS DO PROTOCOLO DE COMUNICAÇÃO
-// ============================================================================
+#[derive(Debug, PartialEq, Eq)]
+pub enum HttpMethod {
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    OPTIONS,
+    OTHER
+}
+
+impl FromStr for HttpMethod {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("GET") {
+            Ok(HttpMethod::GET)
+        } else if s.starts_with("POST") {
+            Ok(HttpMethod::POST)
+        } else if s.starts_with("PUT") {
+            Ok(HttpMethod::PUT)
+        } else if s.starts_with("DELETE") {
+            Ok(HttpMethod::DELETE)
+        } else if s.starts_with("OPTIONS") {
+            Ok(HttpMethod::OPTIONS)
+        } else {
+            return Err("wtf this is not a http method");
+        }
+    }
+    
+    type Err = &'static str;
+}
+
+#[derive(Debug)]
+pub struct HttpRequest {
+    pub method: HttpMethod,
+    pub version: String,
+    pub path: String,
+    pub headers: HashMap<String, String>,
+}
+
+impl HttpRequest {
+    pub fn is_websocket_handshake(&self) -> bool {
+        match self.headers.get("Upgrade") {
+            Some(s) => s.eq("websocket"),
+            None => false
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ClientMessage {
+    ClientGameMessage(ClientGameMessage),
+    HttpRequest(HttpRequest),
+    Invalid,
+    Disconnect
+}
+
+pub fn parse_client_message(payload: &str) -> ClientMessage {
+    if let Ok(httpmethod) = HttpMethod::from_str(payload) {
+        if let Some((method, b)) = payload.split_once(' ') {
+            if let Some((path, b)) = b.split_once(' ') {
+                if let Some((http_version, b)) = b.split_once("\r\n") {
+                    let mut ret = HttpRequest {
+                        method: httpmethod,
+                        version: http_version.to_string(),
+                        path: path.to_string(),
+                        headers: HashMap::new(),
+                    };
+                    let (headers, body) = b.split_once("\r\n\r\n").unwrap_or_default();
+                    for part in headers.split("\r\n") {
+                        if let Some((k,v)) = part.split_once(": ") {
+                            ret.headers.insert(k.to_string(), v.to_string());
+                        }
+                    }
+                    return ClientMessage::HttpRequest(ret);
+                }
+            }
+        }
+    } else {
+        // probably websocket frame
+    }
+    return ClientMessage::Invalid;
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
