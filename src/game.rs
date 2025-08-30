@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -127,6 +129,7 @@ pub struct GameState {
     pub game_over: bool,
     pub width: i32,
     pub height: i32,
+    pub game_speed: Duration,
 }
 
 impl GameState {
@@ -138,6 +141,7 @@ impl GameState {
             game_over: false,
             width,
             height,
+            game_speed: Duration::from_millis(200),
         };
         game.spawn_food();
         game
