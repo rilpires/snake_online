@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize};
 // TIPOS BÁSICOS DO JOGO
 // ============================================================================
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JoinGame {
+    pub game_id: Option<String>,
+    pub size: Option<Size>,
+}
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Direction {
     Up,
@@ -18,6 +25,18 @@ pub enum Direction {
 pub struct Position {
     pub x: i32,
     pub y: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Size {
+    pub width: i32,
+    pub height: i32,
+}
+
+impl Default for Size {
+    fn default() -> Self {
+        Self { width: 32, height: 32 }
+    }
 }
 
 impl Position {
@@ -102,7 +121,7 @@ impl Snake {
 
     pub fn is_colliding_with_walls(&self, width: i32, height: i32) -> bool {
         let head = self.head();
-        head.x < 0 || head.x >= width || head.y < 0 || head.y >= height
+        head.x < 0 || head.x >= width as i32 || head.y < 0 || head.y >= height as i32
     }
 }
 
@@ -125,23 +144,23 @@ impl Food {
 pub struct GameState {
     pub snake: Snake,
     pub food: Food,
-    pub score: u32,
+    pub score: i32,
     pub game_over: bool,
     pub width: i32,
     pub height: i32,
-    pub game_speed: Duration,
+    pub interval: u16, // milliseconds
 }
 
 impl GameState {
     pub fn new(width: i32, height: i32) -> Self {
         let mut game = GameState {
-            snake: Snake::new(width / 2, height / 2),
+            snake: Snake::new(width as i32 / 2, height as i32 / 2),
             food: Food::new(Position::new(0, 0)),
             score: 0,
             game_over: false,
             width,
             height,
-            game_speed: Duration::from_millis(200),
+            interval: 1500,
         };
         game.spawn_food();
         game
@@ -151,8 +170,8 @@ impl GameState {
         use std::collections::HashSet;
         
         // Gera posição pseudo-aleatória baseada no score
-        let mut x = ((self.score * 7 + 3) % (self.width as u32)) as i32;
-        let mut y = ((self.score * 11 + 5) % (self.height as u32)) as i32;
+        let mut x = ((self.score * 7 + 3) % (self.width as i32)) as i32;
+        let mut y = ((self.score * 11 + 5) % (self.height as i32)) as i32;
         
         // Evita colocar comida no corpo da cobra
         let snake_positions: HashSet<Position> = self.snake.body.iter().cloned().collect();
@@ -164,9 +183,9 @@ impl GameState {
                 self.food.position = pos;
                 return;
             }
-            x = (x + 1) % self.width;
+            x = (x + 1) % (self.width as i32);
             if x == 0 {
-                y = (y + 1) % self.height;
+                y = (y + 1) % (self.height as i32);
             }
         }
         

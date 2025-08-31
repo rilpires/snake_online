@@ -1,0 +1,335 @@
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    background-color: #1a1a1a;
+    color: white;
+}
+
+.game-container {
+    text-align: center;
+    max-width: 800px;
+}
+
+h1 {
+    color: #4CAF50;
+    margin-bottom: 20px;
+}
+
+.game-info {
+    margin: 20px 0;
+    font-size: 18px;
+}
+
+.score {
+    color: #FFC107;
+    font-weight: bold;
+}
+
+.game-settings {
+    margin-top: 15px;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.game-settings label {
+    color: #ccc;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.game-settings input {
+    background-color: #333;
+    color: white;
+    border: 1px solid #555;
+    padding: 5px 8px;
+    border-radius: 3px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.game-settings input[type="text"] {
+    width: 150px;
+    text-align: left;
+}
+
+.game-settings input[type="number"] {
+    width: 60px;
+}
+
+.game-settings input[type="range"] {
+    width: 120px;
+    height: 6px;
+    background: #555;
+    outline: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.game-settings input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: #4CAF50;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.game-settings input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: #4CAF50;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+}
+
+#speedValue {
+    color: #FFC107;
+    font-weight: bold;
+    min-width: 50px;
+    display: inline-block;
+}
+
+.game-settings input:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
+}
+
+.game-settings input:disabled {
+    background-color: #222;
+    color: #666;
+    border-color: #333;
+    cursor: not-allowed;
+}
+
+.status {
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+    font-weight: bold;
+}
+
+.connected {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.disconnected {
+    background-color: #f44336;
+    color: white;
+}
+
+.game-over {
+    background-color: #FF5722;
+    color: white;
+}
+
+#gameCanvas {
+    border: 3px solid #4CAF50;
+    background-color: #2d2d2d;
+    margin: 20px 0;
+}
+
+.controls {
+    margin: 20px 0;
+}
+
+.controls h3 {
+    margin-bottom: 10px;
+}
+
+.controls p {
+    margin: 5px 0;
+    color: #ccc;
+}
+
+/* Botões principais */
+#connectBtn, #resetBtn {
+    margin: 5px 10px;
+    min-width: 120px;
+}
+
+button {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin: 5px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+button:hover {
+    background-color: #45a049;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+button:disabled {
+    background-color: #666;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+button:disabled:hover {
+    background-color: #666;
+    transform: none;
+    box-shadow: none;
+}
+
+#resetBtn {
+    background-color: #FF9800;
+}
+
+#resetBtn:hover {
+    background-color: #F57C00;
+}
+
+#resetBtn:disabled {
+    background-color: #666;
+}
+
+.direction-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, 60px);
+    grid-gap: 5px;
+    justify-content: center;
+    margin: 20px 0;
+}
+
+.direction-buttons button {
+    width: 60px;
+    height: 60px;
+    font-size: 20px;
+    padding: 0;
+}
+
+.direction-buttons .empty {
+    visibility: hidden;
+}
+
+.logs {
+    background-color: #333;
+    border-radius: 5px;
+    padding: 10px;
+    margin: 20px 0;
+    max-height: 200px;
+    overflow-y: auto;
+    text-align: left;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.log-entry {
+    margin: 2px 0;
+    padding: 2px 5px;
+}
+
+.log-sent {
+    color: #81C784;
+}
+
+.log-received {
+    color: #64B5F6;
+}
+
+.log-error {
+    color: #EF5350;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .game-container {
+        padding: 10px;
+        max-width: 95%;
+    }
+    
+    #gameCanvas {
+        width: 100%;
+        height: auto;
+        max-width: 400px;
+        border-width: 2px;
+    }
+    
+    /* Botões principais em mobile */
+    #connectBtn, #resetBtn {
+        display: block;
+        width: 90%;
+        max-width: 200px;
+        margin: 10px auto;
+        font-size: 18px;
+        padding: 12px;
+    }
+    
+    .direction-buttons {
+        grid-template-columns: repeat(3, 50px);
+        margin: 30px 0;
+    }
+    
+    .direction-buttons button {
+        width: 50px;
+        height: 50px;
+        font-size: 16px;
+    }
+    
+    .logs {
+        font-size: 11px;
+        max-height: 150px;
+    }
+    
+    h1 {
+        font-size: 24px;
+    }
+    
+    .game-info {
+        font-size: 16px;
+    }
+    
+    .game-settings {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .game-settings label {
+        font-size: 13px;
+    }
+    
+    .game-settings input[type="text"] {
+        width: 200px;
+        padding: 8px;
+        font-size: 16px;
+    }
+    
+    .game-settings input[type="number"] {
+        width: 80px;
+        padding: 8px;
+        font-size: 16px;
+    }
+    
+    .game-settings input[type="range"] {
+        width: 150px;
+        margin: 5px 0;
+    }
+    
+    #speedValue {
+        font-size: 14px;
+        margin-left: 5px;
+    }
+}

@@ -86,7 +86,7 @@ impl HttpResponse {
     }
     pub fn file_content(filepath: &str) -> HttpResponse {
         match fs::read(filepath) {
-            Err(err) => Self::not_found(),
+            Err(_) => Self::not_found(),
             Ok(payload) => {
                 let len = payload.len();
                 HttpResponse {

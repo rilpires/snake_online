@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snake Online</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <h1>🐍 Snake Online</h1>
+
+        <div id="status" class="status disconnected">
+            Desconectado
+        </div>
+
+        <div class="game-info">
+            <span class="score">Pontuação: <span id="score">0</span></span>
+            
+            <div class="game-settings">
+                <label for="gameId">ID do Jogo (opcional):</label>
+                <input type="text" id="gameId" placeholder="Deixe vazio para auto">
+                
+                <label for="gameWidth">Largura:</label>
+                <input type="number" id="gameWidth" min="10" max="50" value="32">
+                
+                <label for="gameHeight">Altura:</label>
+                <input type="number" id="gameHeight" min="10" max="50" value="32">
+                
+                <label for="gameSpeed">Velocidade (ms):</label>
+                <input type="range" id="gameSpeed" min="50" max="2000" value="200" step="10">
+                <span id="speedValue">200ms</span>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas" width="640" height="640"></canvas>
+
+        <div class="controls">
+            <button id="connectBtn">Conectar</button>
+            <button id="resetBtn" disabled>Reset</button>
+            
+            <h3>Controles:</h3>
+            <p>🎮 Use as setas do teclado, WASD ou os botões abaixo</p>
+            <p>⌨️ Teclas: <strong>R</strong> = Reset | <strong>+/-</strong> = Velocidade</p>
+            
+            <div class="direction-buttons">
+                <div class="empty"></div>
+                <button id="upBtn" disabled>↑</button>
+                <div class="empty"></div>
+                <button id="leftBtn" disabled>←</button>
+                <div class="empty"></div>
+                <button id="rightBtn" disabled>→</button>
+                <div class="empty"></div>
+                <button id="downBtn" disabled>↓</button>
+                <div class="empty"></div>
+            </div>
+        </div>
+
+        <div class="logs">
+            <div id="logs"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

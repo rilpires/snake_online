@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::FromStr};
 
-use crate::{game::{Direction, GameState}, http::{HttpMethod, HttpRequest, WebSocketFrame}};
+use crate::{game::{Direction, GameState, JoinGame}, http::{HttpMethod, HttpRequest, WebSocketFrame}};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -57,14 +57,18 @@ pub fn parse_client_message(payload: &[u8]) -> ClientMessage {
 #[serde(tag = "type")]
 pub enum ClientGameMessage {
     #[serde(rename = "join_game")]
-    JoinGame,
+    JoinGame(JoinGame),
     #[serde(rename = "input")]
     Input { direction: Direction },
     #[serde(rename = "reset_game")]
     ResetGame,
+    #[serde(rename = "set_speed")]
+    SetSpeed { interval: u16},
     #[serde(rename = "ping")]
     Ping,
 }
+
+
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]

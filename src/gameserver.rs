@@ -1,13 +1,15 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::time::interval;
 
 use crate::game::GameState;
 use crate::protocol::{parse_client_message, ServerMessage, *};
 use crate::http::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+static MINIMUM_TICK : i32 = 50;
 
 // ============================================================================
 // SERVIDOR DE JOGOS ASSÍNCRONO
@@ -18,6 +20,7 @@ pub struct GameServer {
     clients: HashMap<String, ClientConnection>, // client_id -> client_connection
     tx: UnboundedSender<GameEvent>,
     rx: UnboundedReceiver<GameEvent>,
+    interval_buffer : HashMap<String, i32>,
 }
 
 pub struct ClientConnection {
@@ -54,6 +57,7 @@ impl GameServer {
             clients: HashMap::new(),
             tx: tx,
             rx: rx,
+            interval_buffer: HashMap::new(),
         }
     }
 
@@ -126,7 +130,7 @@ impl GameServer {
 
         // GAME UPDATE TIMER TICK
         let tick_tx = self.tx.clone();
-        let mut game_timer = tokio::time::interval(Duration::from_millis(1250));
+        let mut game_timer = tokio::time::interval(Duration::from_millis(MINIMUM_TICK as u64));
         let mut ticks : u64 = 0;
         tokio::spawn( async move {
             loop {
@@ -172,20 +176,43 @@ impl GameServer {
                 );
             },
             GameEvent::GameTick => {
-                for game in self.games.values_mut() {
-                    game.update();
+                let mut updated_gameids = HashSet::new();
+                for (gameid, game) in self.games.iter_mut() {
+                    if !self.interval_buffer.contains_key(gameid) {
+                        self.interval_buffer.insert(gameid.clone(), 0);
+                    }
+                    self.interval_buffer
+                            .entry(gameid.clone())
+                            .and_modify(
+                                |old| { *old -= MINIMUM_TICK }
+                            ).or_insert(0);
+                    if *self.interval_buffer.get(gameid).unwrap() < 0 {
+                        game.update();
+                        updated_gameids.insert(gameid.clone());
+                        self.interval_buffer
+                            .entry(gameid.clone())
+                            .and_modify(
+                                |old| { *old += game.interval as i32 }
+                            );
+                        println!("interval: {}", game.interval);
+                        println!("current: {}", self.interval_buffer.get_mut(gameid).unwrap());
+                    }
                 }
+                self.interval_buffer.retain(
+                    |k, _| { self.games.contains_key(k)}
+                );
                 let messages_to_send: Vec<(String, ServerMessage)> = self.clients
                     .iter()
                     .filter_map(|(clientid, client)| {
                         match &client.game_id {
-                            Some(gameid) => {
+                            Some(gameid) if updated_gameids.contains(gameid) => {
                                 self.games
                                     .get(gameid)
                                     .map( |game| {
                                         (clientid.clone(), ServerMessage::game_state(game.clone()))
                                     })
                             },
+                            Some(_) => None,
                             None => None,
                         }
                     })
@@ -210,11 +237,17 @@ impl GameServer {
         } else {
             // all the proper router stuff goes here
             // we only have index.html so
-            if req.method == HttpMethod::GET && req.path.eq("/") {
-                println!("Sending index.html to {}", client.id);
+            if req.method == HttpMethod::GET {
+                let (_, mut filepath) = req.path.split_once('/').unwrap();
+                if filepath.len() == 0 {
+                    filepath = "index.html";
+                }
+                println!("Sending {} to {}", filepath, client.id);
                 self.send_http_response(
                     clientid.as_str(),
-                    HttpResponse::file_content("index.html")
+                    HttpResponse::file_content(
+                        format!("public/{}", filepath).as_str()
+                    ),
                 ).await;
             }
             self.send_http_response(
@@ -227,7 +260,7 @@ impl GameServer {
     async fn handle_client_game_message(&mut self, clientid: String, msg: ClientGameMessage) {
         let client = self.clients.get_mut(&clientid).unwrap();
         let client_response : Option<ServerMessage> = match msg {
-            ClientGameMessage::JoinGame => {
+            ClientGameMessage::JoinGame(joingame) => {
                 if let Some(id) = &client.game_id {
                     // gotta leave
                     client.game_id = None;
@@ -237,7 +270,8 @@ impl GameServer {
                 self.games.insert(
                     new_game_id,
                     GameState::new(
-                        32, 32,
+                        joingame.size.unwrap_or_default().width,
+                        joingame.size.unwrap_or_default().height,
                     ),
                 );
                 Some(ServerMessage::Connected { client_id: clientid.clone() })
@@ -274,6 +308,23 @@ impl GameServer {
                     }
                 },
                 None => None,
+            },
+            ClientGameMessage::SetSpeed { interval } => {
+                match &client.game_id {
+                    Some(game_id) => {
+                        match self.games.get_mut(game_id) {
+                            Some(gamestate) => {
+                                gamestate.interval = interval;
+                                None
+                            },
+                            None => {
+                                println!("Inconsistency, no game for client with gameid {game_id}");
+                                None
+                            },
+                        }
+                    },
+                    None => None,
+                }
             },
             ClientGameMessage::Ping => Some(ServerMessage::Pong),
         };
