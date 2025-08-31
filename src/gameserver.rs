@@ -194,8 +194,6 @@ impl GameServer {
                             .and_modify(
                                 |old| { *old += game.interval as i32 }
                             );
-                        println!("interval: {}", game.interval);
-                        println!("current: {}", self.interval_buffer.get_mut(gameid).unwrap());
                     }
                 }
                 self.interval_buffer.retain(
