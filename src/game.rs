@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
@@ -149,6 +149,10 @@ pub struct GameState {
     pub width: i32,
     pub height: i32,
     pub interval: u16, // milliseconds
+
+    #[serde(skip_serializing)]
+    pub already_sent_highscores : HashSet<String>,
+    pub already_sent_gameovers_to : HashSet<String>,
 }
 
 impl GameState {
@@ -161,6 +165,8 @@ impl GameState {
             width,
             height,
             interval: 1500,
+            already_sent_highscores: HashSet::new(),
+            already_sent_gameovers_to: HashSet::new(),
         };
         game.spawn_food();
         game

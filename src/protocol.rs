@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{cmp::min, collections::HashMap, str::FromStr};
 
 use crate::{game::{Direction, GameState, JoinGame}, http::{HttpMethod, HttpRequest, WebSocketFrame}};
 use serde::{Deserialize, Serialize};
@@ -64,11 +64,39 @@ pub enum ClientGameMessage {
     ResetGame,
     #[serde(rename = "set_speed")]
     SetSpeed { interval: u16},
+    #[serde(rename = "username")]
+    Username { username: String},
     #[serde(rename = "ping")]
     Ping,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HighScoreEntry {
+    pub username: String,
+    pub score: u32,
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HighScores {
+    pub highscores: HashMap<String, HighScoreEntry>
+}
+impl HighScores {
+    pub fn from_vec(value: &mut Vec<HighScoreEntry>) -> Self {
+        let mut ret = HashMap::new();
+        value.sort_by(
+            |a, b| {b.score.cmp(&a.score)}
+        );
+        for i in 0..min(3, value.len()) {
+            ret.insert(
+                format!("{}", i+1),
+                value.get(i).unwrap().clone(),
+            );
+        }
+        HighScores{
+            highscores: ret
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -81,6 +109,8 @@ pub enum ServerMessage {
     Pong,
     #[serde(rename = "connected")]
     Connected { client_id: String },
+    #[serde(rename = "highscores")]
+    HighScores (HighScores),
 }
 
 impl ServerMessage {

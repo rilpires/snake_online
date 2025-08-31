@@ -23,6 +23,15 @@ const gameHeightInput = document.getElementById('gameHeight');
 const gameSpeedSlider = document.getElementById('gameSpeed');
 const speedValueSpan = document.getElementById('speedValue');
 
+// Elementos do modal e highscores
+const gameOverModal = document.getElementById('gameOverModal');
+const finalScoreSpan = document.getElementById('finalScore');
+const usernameInput = document.getElementById('usernameInput');
+const submitScoreBtn = document.getElementById('submitScoreBtn');
+const skipScoreBtn = document.getElementById('skipScoreBtn');
+const highscoresSidebar = document.getElementById('highscoresSidebar');
+const highscoresList = document.getElementById('highscoresList');
+
 const upBtn = document.getElementById('upBtn');
 const downBtn = document.getElementById('downBtn');
 const leftBtn = document.getElementById('leftBtn');
@@ -71,6 +80,82 @@ function updateSpeedFromServer(interval) {
     gameSpeedSlider.value = interval;
     updateSpeedDisplay();
     isUpdatingSpeedFromServer = false;
+}
+
+function showGameOverModal(score) {
+    finalScoreSpan.textContent = score;
+    usernameInput.value = '';
+    gameOverModal.style.display = 'flex';
+    
+    // Foca no input após um pequeno delay para a animação
+    setTimeout(() => {
+        usernameInput.focus();
+    }, 300);
+}
+
+function hideGameOverModal() {
+    gameOverModal.style.display = 'none';
+}
+
+function submitUsername() {
+    const username = usernameInput.value.trim();
+    if (username.length === 0) {
+        alert('Por favor, digite um nome!');
+        return;
+    }
+    
+    if (username.length > 140) {
+        alert('Nome muito longo! Máximo 140 caracteres.');
+        return;
+    }
+    
+    sendMessage({
+        type: 'username',
+        username: username
+    });
+    
+    addLog(`Nome enviado: ${username}`, 'info');
+    hideGameOverModal();
+}
+
+function skipScore() {
+    addLog('Pontuação não enviada', 'info');
+    hideGameOverModal();
+}
+
+function renderHighscores(highscores) {
+    highscoresList.innerHTML = '';
+    
+    // Converte o objeto em array e ordena
+    const sortedScores = Object.entries(highscores)
+        .map(([rank, data]) => ({ rank: parseInt(rank), ...data }))
+        .sort((a, b) => a.rank - b.rank);
+    
+    sortedScores.forEach((entry) => {
+        const item = document.createElement('div');
+        item.className = 'highscore-item';
+        
+        const rankSpan = document.createElement('span');
+        rankSpan.className = 'highscore-rank';
+        rankSpan.textContent = `#${entry.rank}`;
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'highscore-name';
+        nameSpan.textContent = entry.username;
+        
+        const scoreSpan = document.createElement('span');
+        scoreSpan.className = 'highscore-score';
+        scoreSpan.textContent = entry.scores;
+        
+        item.appendChild(rankSpan);
+        item.appendChild(nameSpan);
+        item.appendChild(scoreSpan);
+        
+        highscoresList.appendChild(item);
+    });
+    
+    // Mostra a sidebar
+    highscoresSidebar.style.display = 'block';
 }
 
 // ============================================================================
@@ -177,6 +262,10 @@ function setConnectedState(connected) {
         connectBtn.textContent = 'Conectar';
         gameState = null;
         clearCanvas();
+        
+        // Esconde modal e sidebar quando desconecta
+        hideGameOverModal();
+        highscoresSidebar.style.display = 'none';
     }
     
     // Atualiza estado dos botões
@@ -222,6 +311,9 @@ function resetGame() {
     if (!isConnected) return;
     
     addLog('Resetando jogo...', 'info');
+    
+    // Esconde o modal se estiver aberto
+    hideGameOverModal();
     
     // Limpa o estado local
     gameState = null;
@@ -282,6 +374,11 @@ function handleServerMessage(message) {
             scoreSpan.textContent = '0';
             clearCanvas();
             break;
+            
+        case 'highscores':
+            addLog('Highscores recebidos', 'received');
+            renderHighscores(message.highscores);
+            break;
     }
 }
 
@@ -293,6 +390,11 @@ function updateUI() {
     if (gameState.game_over) {
         statusDiv.textContent = `Game Over! Pontuação: ${gameState.score}`;
         statusDiv.className = 'status game-over';
+        
+        // Mostra modal para input do nome (apenas uma vez)
+        if (gameOverModal.style.display === 'none') {
+            showGameOverModal(gameState.score);
+        }
     } else if (isConnected) {
         statusDiv.textContent = 'Jogando';
         statusDiv.className = 'status connected';
@@ -444,6 +546,22 @@ gameSpeedSlider.addEventListener('input', function() {
 
 gameSpeedSlider.addEventListener('change', function() {
     sendSpeedChange();
+});
+
+// Modal de Game Over
+submitScoreBtn.addEventListener('click', submitUsername);
+skipScoreBtn.addEventListener('click', skipScore);
+
+// Enter no input do username
+usernameInput.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        submitUsername();
+    }
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        skipScore();
+    }
 });
 
 // Teclado

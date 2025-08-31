@@ -11,6 +11,20 @@ body {
 
 .game-container {
     text-align: center;
+    max-width: 1200px;
+    width: 100%;
+}
+
+.main-content {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.game-area {
+    flex: 1;
     max-width: 800px;
 }
 
@@ -237,6 +251,179 @@ button:disabled:hover {
     font-size: 12px;
 }
 
+.highscores-sidebar {
+    width: 280px;
+    background-color: #2a2a2a;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+    border: 2px solid #4CAF50;
+}
+
+.highscores-sidebar h3 {
+    color: #FFC107;
+    margin-top: 0;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.highscore-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    margin: 5px 0;
+    background-color: #333;
+    border-radius: 5px;
+    border-left: 4px solid #4CAF50;
+}
+
+.highscore-rank {
+    font-weight: bold;
+    color: #FFC107;
+    min-width: 30px;
+}
+
+.highscore-name {
+    flex: 1;
+    text-align: left;
+    margin-left: 10px;
+    color: white;
+    font-weight: bold;
+}
+
+.highscore-score {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.highscore-item:nth-child(1) {
+    border-left-color: #FFD700;
+    background-color: #4a3f00;
+}
+
+.highscore-item:nth-child(2) {
+    border-left-color: #C0C0C0;
+    background-color: #3a3a3a;
+}
+
+.highscore-item:nth-child(3) {
+    border-left-color: #CD7F32;
+    background-color: #3a2f2a;
+}
+
+/* Modal de Game Over */
+.modal {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background-color: #2a2a2a;
+    border: 3px solid #4CAF50;
+    border-radius: 15px;
+    padding: 30px;
+    text-align: center;
+    max-width: 400px;
+    width: 90%;
+    animation: modalFadeIn 0.3s ease-out;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.modal-content h2 {
+    color: #FF5722;
+    margin-top: 0;
+    font-size: 24px;
+}
+
+.modal-content p {
+    font-size: 18px;
+    margin: 15px 0;
+}
+
+#finalScore {
+    color: #FFC107;
+    font-weight: bold;
+    font-size: 20px;
+}
+
+.username-input {
+    margin: 20px 0;
+}
+
+.username-input label {
+    display: block;
+    margin-bottom: 10px;
+    color: #ccc;
+    font-weight: bold;
+}
+
+#usernameInput {
+    width: 100%;
+    max-width: 300px;
+    padding: 12px;
+    font-size: 16px;
+    border: 2px solid #555;
+    border-radius: 5px;
+    background-color: #333;
+    color: white;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+#usernameInput:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.modal-buttons button {
+    min-width: 120px;
+    padding: 12px 20px;
+    font-size: 16px;
+}
+
+#submitScoreBtn {
+    background-color: #4CAF50;
+}
+
+#submitScoreBtn:hover {
+    background-color: #45a049;
+}
+
+#skipScoreBtn {
+    background-color: #666;
+}
+
+#skipScoreBtn:hover {
+    background-color: #555;
+}
+
 .log-entry {
     margin: 2px 0;
     padding: 2px 5px;
@@ -256,6 +443,15 @@ button:disabled:hover {
 
 /* Responsividade */
 @media (max-width: 768px) {
+    .main-content {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .game-area {
+        width: 100%;
+    }
+    
     .game-container {
         padding: 10px;
         max-width: 95%;
@@ -331,5 +527,30 @@ button:disabled:hover {
     #speedValue {
         font-size: 14px;
         margin-left: 5px;
+    }
+    
+    /* Highscores em mobile */
+    .highscores-sidebar {
+        width: 100%;
+        max-width: 400px;
+        margin-top: 20px;
+    }
+    
+    /* Modal em mobile */
+    .modal-content {
+        margin: 20px;
+        padding: 20px;
+        max-width: none;
+        width: calc(100% - 40px);
+    }
+    
+    .modal-buttons {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .modal-buttons button {
+        width: 100%;
+        max-width: 200px;
     }
 }

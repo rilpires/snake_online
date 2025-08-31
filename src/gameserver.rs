@@ -3,7 +3,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::interval;
 
-use crate::game::GameState;
+use crate::game::{self, GameState};
 use crate::protocol::{parse_client_message, ServerMessage, *};
 use crate::http::*;
 use std::collections::{HashMap, HashSet};
@@ -21,6 +21,7 @@ pub struct GameServer {
     tx: UnboundedSender<GameEvent>,
     rx: UnboundedReceiver<GameEvent>,
     interval_buffer : HashMap<String, i32>,
+    high_scores: Vec<HighScoreEntry>,
 }
 
 pub struct ClientConnection {
@@ -58,6 +59,7 @@ impl GameServer {
             tx: tx,
             rx: rx,
             interval_buffer: HashMap::new(),
+            high_scores: Vec::new(),
         }
     }
 
@@ -204,11 +206,18 @@ impl GameServer {
                     .filter_map(|(clientid, client)| {
                         match &client.game_id {
                             Some(gameid) if updated_gameids.contains(gameid) => {
-                                self.games
-                                    .get(gameid)
-                                    .map( |game| {
-                                        (clientid.clone(), ServerMessage::game_state(game.clone()))
-                                    })
+                                if let Some(gamestate) = self.games.get_mut(gameid) {
+                                    if gamestate.game_over && gamestate.already_sent_gameovers_to.contains(clientid) {
+                                        None
+                                    } else {
+                                        if (gamestate.game_over) {
+                                            gamestate.already_sent_gameovers_to.insert(clientid.clone());
+                                        }
+                                        Some((clientid.clone(), ServerMessage::game_state(gamestate.clone())))   
+                                    }
+                                } else {
+                                    None
+                                }
                             },
                             Some(_) => None,
                             None => None,
@@ -232,6 +241,7 @@ impl GameServer {
                 &clientid, 
                 HttpResponse::websocket_handshake(req),
             ).await;
+            self.send_websocket_highscores(&clientid).await;
         } else {
             // all the proper router stuff goes here
             // we only have index.html so
@@ -240,7 +250,6 @@ impl GameServer {
                 if filepath.len() == 0 {
                     filepath = "index.html";
                 }
-                println!("Sending {} to {}", filepath, client.id);
                 self.send_http_response(
                     clientid.as_str(),
                     HttpResponse::file_content(
@@ -257,77 +266,57 @@ impl GameServer {
 
     async fn handle_client_game_message(&mut self, clientid: String, msg: ClientGameMessage) {
         let client = self.clients.get_mut(&clientid).unwrap();
-        let client_response : Option<ServerMessage> = match msg {
-            ClientGameMessage::JoinGame(joingame) => {
-                if let Some(id) = &client.game_id {
-                    // gotta leave
-                    client.game_id = None;
-                };
-                let new_game_id = rand::random::<u64>().to_string();
-                client.game_id = Some(new_game_id.clone());
-                self.games.insert(
-                    new_game_id,
-                    GameState::new(
-                        joingame.size.unwrap_or_default().width,
-                        joingame.size.unwrap_or_default().height,
-                    ),
-                );
-                Some(ServerMessage::Connected { client_id: clientid.clone() })
-            },
-            ClientGameMessage::Input { direction } => {
-                match &client.game_id {
-                    Some(game_id) => {
-                        match self.games.get_mut(game_id) {
-                            Some(gamestate) => {
-                                gamestate.handle_input(direction);
-                                None
-                            },
-                            None => {
-                                println!("Inconsistency, no game for client with gameid {game_id}");
-                                None
-                            },
-                        }
+        let mut current_game : Option<&mut GameState> = None;
+        if let Some(id) = &client.game_id {
+            current_game = self.games.get_mut(id);
+        }
+        let client_response : Option<ServerMessage> = match (current_game, msg) {
+            (_, ClientGameMessage::JoinGame(joingame)) => {
+                        if let Some(id) = &client.game_id {
+                            // gotta leave
+                            client.game_id = None;
+                        };
+                        let new_game_id = rand::random::<u64>().to_string();
+                        client.game_id = Some(new_game_id.clone());
+                        self.games.insert(
+                            new_game_id,
+                            GameState::new(
+                                joingame.size.unwrap_or_default().width,
+                                joingame.size.unwrap_or_default().height,
+                            ),
+                        );
+                        Some(ServerMessage::Connected { client_id: clientid.clone() })
                     },
-                    None => None,
+            (Some(gamestate), ClientGameMessage::Input { direction }) => {
+                gamestate.handle_input(direction);
+                None
+            },
+            (Some(gamestate), ClientGameMessage::ResetGame) => {
+                println!("Resetting game for {}", clientid);
+                gamestate.reset();
+                None
+            },
+            (Some(gamestate), ClientGameMessage::SetSpeed { interval }) => {
+                gamestate.interval = interval;
+                None
+            },
+            (Some(gamestate), ClientGameMessage::Username { username }) => {
+                if gamestate.already_sent_highscores.contains(&clientid) {
+                    None
+                } else {
+                    self.high_scores.push(HighScoreEntry {
+                        username: username,
+                        score: gamestate.score as u32,
+                    });
+                    gamestate.already_sent_highscores.insert(clientid.clone());
+                    Some(ServerMessage::HighScores(HighScores::from_vec(&mut self.high_scores)))
                 }
             },
-            ClientGameMessage::ResetGame => match &client.game_id {
-                Some(game_id) => {
-                    match self.games.get_mut(game_id) {
-                        Some(gamestate) => {
-                            println!("Resetting game for {}", clientid);
-                            gamestate.reset();
-                            None
-                        },
-                        None => {
-                            println!("Inconsistency, no game for client with gameid {game_id}");
-                            None
-                        },
-                    }
-                },
-                None => None,
-            },
-            ClientGameMessage::SetSpeed { interval } => {
-                match &client.game_id {
-                    Some(game_id) => {
-                        match self.games.get_mut(game_id) {
-                            Some(gamestate) => {
-                                gamestate.interval = interval;
-                                None
-                            },
-                            None => {
-                                println!("Inconsistency, no game for client with gameid {game_id}");
-                                None
-                            },
-                        }
-                    },
-                    None => None,
-                }
-            },
-            ClientGameMessage::Ping => Some(ServerMessage::Pong),
+            (_, ClientGameMessage::Ping) => Some(ServerMessage::Pong),
+            (_, _) => None,
         };
         if let Some(res) = client_response {
-            self.send_websocket_response(&clientid, &res).await;
+            let _ = self.send_websocket_response(&clientid, &res).await;
         }
     }
 
@@ -342,5 +331,10 @@ impl GameServer {
         let client = self.clients.get_mut(client_id).unwrap();
         let _ = &mut client.stream.write_all(&frame).await;
         Ok(())
+    }
+    async fn send_websocket_highscores(&mut self, client_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let highscores = ServerMessage::HighScores(HighScores::from_vec(&mut self.high_scores)); 
+        println!("Sending highscores to {}", client_id);
+        self.send_websocket_response(client_id, &highscores).await
     }
 }
