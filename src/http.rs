@@ -56,13 +56,16 @@ pub struct HttpResponse {
     status_code: u16,
     status_msg: String,
     headers: HashMap<String, String>,
-    body: Option<String>,
+    body: Option<Vec<u8>>,
 }
 
 impl HttpResponse {
     fn default_headers() -> HashMap<String, String> {
         let mut ret = HashMap::<String, String>::new();
         ret.insert("Server".to_string(), "rust-001".to_string());
+        ret.insert("Cross-Origin-Opener-Policy".to_string(), "same-origin".to_string());
+        ret.insert("Cross-Origin-Embedder-Policy".to_string(), "require-corp".to_string());
+        
         return ret;
     }
     fn with_content_length(mut self, size: usize) -> Self {
@@ -86,16 +89,35 @@ impl HttpResponse {
     }
     pub fn file_content(filepath: &str) -> HttpResponse {
         match fs::read(filepath) {
-            Err(_) => Self::not_found(),
+            Err(err) => {
+                println!("error reading file '{}': {}", filepath, err);
+                Self::not_found()
+            },
             Ok(payload) => {
                 let len = payload.len();
+                let file_extension = filepath.split('.').last();
                 HttpResponse {
                     protocol_version: "HTTP/1.1".to_string(),
                     status_code: 200,
                     status_msg: "Take this".to_string(),
                     headers: Self::default_headers(),
-                    body: Some(String::from_utf8(payload).unwrap()),
-                }.with_content_length(len)
+                    body: Some(payload),
+                }
+                .with_content_length(len)
+                .with_content_type(
+                    match file_extension {
+                        Some(ext) if ext.to_ascii_lowercase().eq("js") => {
+                            "text/javascript"
+                        },
+                        Some(ext) if ext.to_ascii_lowercase().eq("html") => {
+                            "text/html"
+                        },
+                        Some(ext) if ext.to_ascii_lowercase().eq("css") => {
+                            "text/css"
+                        },
+                        _ => "application/octet-stream"
+                    }
+                )
             }
         }
     }
@@ -132,19 +154,31 @@ impl HttpResponse {
         }
     }
 
-
-}
-impl ToString for HttpResponse {
-    fn to_string(&self) -> String {
-        let ret =  vec![self.protocol_version.as_str(), self.status_code.to_string().as_str(), self.status_msg.as_str()].join(" ") +
-                "\r\n" +
-                self.headers.iter().map(|x| format!("{}: {}", x.0, x.1) ).collect::<Vec<String>>().join("\r\n").as_str() +
-                "\r\n\r\n" +
-                &self.body.as_ref().unwrap_or(&String::new()).as_str();
-        return ret;
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let status_line = format!(
+            "{} {} {}", 
+            self.protocol_version, 
+            self.status_code, 
+            self.status_msg
+        );
+        
+        let headers_str = self.headers.iter()
+            .map(|(key, value)| format!("{}: {}", key, value))
+            .collect::<Vec<String>>()
+            .join("\r\n");
+        
+        let http_header = format!("{}\r\n{}\r\n\r\n", status_line, headers_str);
+        
+        let mut result = http_header.into_bytes();
+        
+        if let Some(body) = &self.body {
+            result.extend_from_slice(body);
+        }
+        
+        result
     }
-}
 
+}
 
 // Just websocket parsing & stringfier
 pub struct WebSocketFrame;
@@ -211,7 +245,7 @@ impl WebSocketFrame {
         
         let mut payloadvec : Vec<u8> = data.drain(0..payload_start+payload_len).collect();
         payloadvec.drain(0..payload_start);
-        
+
         if masking_bit > 0 {
             payloadvec = payloadvec.iter().enumerate().map(
                 |(index, byte)| (byte) ^ (mask.to_be_bytes())[index % 4]

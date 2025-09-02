@@ -30,7 +30,7 @@ pub struct ClientConnection {
     game_id: Option<String>,
     websocket: bool,
     stream: OwnedWriteHalf,
-    last_update: Instant,
+    username: Option<String>,
 }
 impl ClientConnection {
     pub fn new(id: &str, stream: OwnedWriteHalf ) -> Self {
@@ -38,7 +38,7 @@ impl ClientConnection {
             id: id.to_string(),
             websocket: false,
             stream: stream,
-            last_update: std::time::Instant::now(),
+            username: None,
             game_id: None,
         }
     }
@@ -198,7 +198,22 @@ impl GameServer {
                                 |old| { *old -= MINIMUM_TICK }
                             ).or_insert(0);
                     if *self.interval_buffer.get(gameid).unwrap() < 0 {
+                        let game_over = game.game_over;
                         game.update();
+                        if game.game_over && !game_over {
+                            // game has done now
+                            // lets register high scores
+                            for (_,client) in self.clients.iter() {
+                                if let Some(username) = &client.username {
+                                    self.high_scores.push(
+                                        HighScoreEntry {
+                                            username: username.to_string(),
+                                            score: game.score as u32
+                                        }
+                                    );
+                                }
+                            }
+                        }
                         updated_gameids.insert(gameid.clone());
                         self.interval_buffer
                             .entry(gameid.clone())
@@ -210,7 +225,7 @@ impl GameServer {
                 self.interval_buffer.retain(
                     |k, _| { self.games.contains_key(k)}
                 );
-                let messages_to_send: Vec<(String, ServerMessage)> = self.clients
+                let messages_to_send: Vec<(String, Vec<ServerMessage>)> = self.clients
                     .iter()
                     .filter_map(|(clientid, client)| {
                         match &client.game_id {
@@ -219,10 +234,13 @@ impl GameServer {
                                     if gamestate.game_over && gamestate.already_sent_gameovers_to.contains(clientid) {
                                         None
                                     } else {
-                                        if (gamestate.game_over) {
+                                        let mut ret = Vec::new();
+                                        if gamestate.game_over {
                                             gamestate.already_sent_gameovers_to.insert(clientid.clone());
+                                            ret.push(ServerMessage::HighScores(HighScores::from_vec(&mut self.high_scores)));
                                         }
-                                        Some((clientid.clone(), ServerMessage::game_state(gamestate.clone())))   
+                                        ret.push(ServerMessage::game_state(gamestate.clone()));
+                                        Some((clientid.clone(), ret))   
                                     }
                                 } else {
                                     None
@@ -233,9 +251,11 @@ impl GameServer {
                         }
                     })
                     .collect();
-                for (client_id, message) in messages_to_send {
-                    if let Err(e) = self.send_websocket_response(&client_id, &message).await {
-                        eprintln!("Failed to send to {}: {}", client_id, e);
+                for (client_id, messages) in messages_to_send {
+                    for message in messages {
+                        if let Err(e) = self.send_websocket_response(&client_id, &message).await {
+                            eprintln!("Failed to send to {}: {}", client_id, e);
+                        }
                     }
                 }
             },
@@ -265,11 +285,12 @@ impl GameServer {
                         format!("public/{}", filepath).as_str()
                     ),
                 ).await;
+            } else {
+                self.send_http_response(
+                    clientid.as_str(),
+                    HttpResponse::not_found()
+                ).await;
             }
-            self.send_http_response(
-                clientid.as_str(),
-                HttpResponse::not_found()
-            ).await;
         }
     }
 
@@ -309,17 +330,22 @@ impl GameServer {
                 gamestate.interval = interval;
                 None
             },
-            (Some(gamestate), ClientGameMessage::Username { username }) => {
-                if gamestate.already_sent_highscores.contains(&clientid) {
-                    None
-                } else {
+            // User may be sending username after gameover, so we can register it
+            (Some(gamestate), ClientGameMessage::Username { username }) if (gamestate.game_over) && (client.username == None) => {
+                if None == client.username {
+                    client.username = Some(username.clone());
                     self.high_scores.push(HighScoreEntry {
                         username: username,
                         score: gamestate.score as u32,
                     });
-                    gamestate.already_sent_highscores.insert(clientid.clone());
                     Some(ServerMessage::HighScores(HighScores::from_vec(&mut self.high_scores)))
+                } else {
+                    None
                 }
+            },
+            (_, ClientGameMessage::Username { username }) => {
+                client.username = Some(username);
+                None
             },
             (_, ClientGameMessage::Ping) => Some(ServerMessage::Pong),
             (_, _) => None,
@@ -331,7 +357,7 @@ impl GameServer {
 
     async fn send_http_response(&mut self, client_id: &str, res: HttpResponse) {
         let client = self.clients.get_mut(client_id).unwrap();
-        let _ = client.stream.write_all( res.to_string().as_bytes() ).await;
+        let _ = client.stream.write_all( &res.as_bytes() ).await;
     }
 
     async fn send_websocket_response(&mut self, client_id: &str, message: &ServerMessage) -> Result<(), Box<dyn std::error::Error>> {

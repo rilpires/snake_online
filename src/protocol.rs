@@ -51,9 +51,7 @@ pub fn parse_client_message(payload: &mut Vec<u8>) -> ClientMessage {
                         Ok(msg) => {
                             ClientMessage::ClientGameMessage(msg)
                         },
-                        Err(_) => {
-                            ClientMessage::Invalid
-                        }
+                        Err(_) => ClientMessage::Invalid
                     }
                 } else {
                     // not valid utf8 websocket dataframe
@@ -112,7 +110,7 @@ impl HighScores {
         value.sort_by(
             |a, b| {b.score.cmp(&a.score)}
         );
-        for i in 0..min(3, value.len()) {
+        for i in 0..min(10, value.len()) {
             ret.insert(
                 format!("{}", i+1),
                 value.get(i).unwrap().clone(),

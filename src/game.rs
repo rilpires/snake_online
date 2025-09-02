@@ -63,6 +63,9 @@ pub struct Snake {
     pub body: Vec<Position>,
     pub direction: Direction,
     pub grow_next: bool,
+    
+    #[serde(skip_serializing)]
+    pub next_direction: Option<Direction>,
 }
 
 impl Snake {
@@ -74,6 +77,7 @@ impl Snake {
                 Position::new(start_x - 2, start_y),
             ],
             direction: Direction::Right,
+            next_direction: None,
             grow_next: false,
         }
     }
@@ -83,7 +87,9 @@ impl Snake {
     }
 
     pub fn move_forward(&mut self) {
+        self.direction = self.next_direction.unwrap_or(self.direction);
         let new_head = self.head().move_in_direction(self.direction);
+        self.next_direction = None;
         self.body.insert(0, new_head);
 
         if !self.grow_next {
@@ -94,9 +100,8 @@ impl Snake {
     }
 
     pub fn change_direction(&mut self, new_direction: Direction) {
-        // Evita a cobra ir na direção oposta
         if !self.is_opposite_direction(new_direction) {
-            self.direction = new_direction;
+            self.next_direction = Some(new_direction);
         }
     }
 
@@ -151,7 +156,6 @@ pub struct GameState {
     pub interval: u16, // milliseconds
 
     #[serde(skip_serializing)]
-    pub already_sent_highscores : HashSet<String>,
     pub already_sent_gameovers_to : HashSet<String>,
 }
 
@@ -165,7 +169,6 @@ impl GameState {
             width,
             height,
             interval: 1500,
-            already_sent_highscores: HashSet::new(),
             already_sent_gameovers_to: HashSet::new(),
         };
         game.spawn_food();
@@ -173,16 +176,11 @@ impl GameState {
     }
 
     pub fn spawn_food(&mut self) {
-        use std::collections::HashSet;
-        
-        // Gera posição pseudo-aleatória baseada no score
         let mut x = ((self.score * 7 + 3) % (self.width as i32)) as i32;
         let mut y = ((self.score * 11 + 5) % (self.height as i32)) as i32;
         
-        // Evita colocar comida no corpo da cobra
         let snake_positions: HashSet<Position> = self.snake.body.iter().cloned().collect();
         
-        // Busca simples por posição livre
         for _ in 0..100 {
             let pos = Position::new(x, y);
             if !snake_positions.contains(&pos) {
@@ -195,7 +193,6 @@ impl GameState {
             }
         }
         
-        // Fallback: coloca em (0,0) se não encontrar
         self.food.position = Position::new(0, 0);
     }
 
