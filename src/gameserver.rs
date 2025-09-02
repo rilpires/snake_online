@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 static MINIMUM_TICK : i32 = 50;
+static MAX_HTTP_BUFFER_LEN : usize = 8192;
 
 // ============================================================================
 // SERVIDOR DE JOGOS ASSÍNCRONO
@@ -89,9 +90,9 @@ impl GameServer {
                                         ),
                                     ),
                                 );
-                                let mut buff : [u8; 1024] = [0; 1024];
+                                let mut buff = [0; 2048];
+                                let mut vec_buff = Vec::new();
                                 loop {
-                                    
                                     match tcp_rx.read(&mut buff).await {
                                         Err(_) => {
                                             let _ = client_tx.send(
@@ -102,6 +103,11 @@ impl GameServer {
                                             );
                                         },
                                         Ok(n) => {
+                                            vec_buff.append(&mut buff[0..n].to_vec());
+                                            if vec_buff.len() > MAX_HTTP_BUFFER_LEN {
+                                                println!("Buffer from {} is huge (>{}), clearing it", addr.to_string(), MAX_HTTP_BUFFER_LEN);
+                                                vec_buff.clear();
+                                            }
                                             if n == 0 {
                                                 let _ = client_tx.send(
                                                     GameEvent::ClientInput(
@@ -111,10 +117,11 @@ impl GameServer {
                                                 );
                                                 break; // to end the task
                                             } else {
+                                                let parsed_input = parse_client_message(&mut vec_buff);
                                                 let _ = client_tx.send(
                                                     GameEvent::ClientInput(
                                                         addr.to_string(),
-                                                        parse_client_message(&buff[0..n]),
+                                                        parsed_input,
                                                     ),
                                                 );
                                             }
@@ -168,6 +175,8 @@ impl GameServer {
                     },
                     ClientMessage::Disconnect => {
                         self.clients.remove(&clientid);
+                    },
+                    ClientMessage::Incomplete => {
                     },
                 }
             },

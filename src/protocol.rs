@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, str::FromStr};
+use std::{cmp::min, collections::HashMap, io::{Error, ErrorKind}, str::FromStr};
 
 use crate::{game::{Direction, GameState, JoinGame}, http::{HttpMethod, HttpRequest, WebSocketFrame}};
 use serde::{Deserialize, Serialize};
@@ -8,49 +8,76 @@ pub enum ClientMessage {
     ClientGameMessage(ClientGameMessage),
     HttpRequest(HttpRequest),
     Invalid,
+    Incomplete,
     Disconnect
 }
 
-pub fn parse_client_message(payload: &[u8]) -> ClientMessage {
-    if let Ok(string) = String::from_utf8(payload.to_vec()) {
-        if let Ok(httpmethod) = HttpMethod::from_str(&string) {
-            if let Some((_, b)) = string.split_once(' ') {
-                if let Some((path, b)) = b.split_once(' ') {
-                    if let Some((http_version, b)) = b.split_once("\r\n") {
-                        let mut ret = HttpRequest {
-                            method: httpmethod,
-                            version: http_version.to_string(),
-                            path: path.to_string(),
-                            headers: HashMap::new(),
-                        };
-                        let (headers, _) = b.split_once("\r\n\r\n").unwrap_or_default();
-                        for part in headers.split("\r\n") {
-                            if let Some((k,v)) = part.split_once(": ") {
-                                ret.headers.insert(k.to_string(), v.to_string());
+pub fn parse_client_message(payload: &mut Vec<u8>) -> ClientMessage {
+    println!("payload len: {}", payload.len());
+    match String::from_utf8(payload.to_vec()) {
+        // If it is utf8 string, it probably is http request, not websocket frame
+        Ok(string) => {
+                if let Ok(httpmethod) = HttpMethod::from_str(&string) {
+                if let Some((_, b)) = string.split_once(' ') {
+                    if let Some((path, b)) = b.split_once(' ') {
+                        if let Some((http_version, b)) = b.split_once("\r\n") {
+                            let mut ret = HttpRequest {
+                                method: httpmethod,
+                                version: http_version.to_string(),
+                                path: path.to_string(),
+                                headers: HashMap::new(),
+                            };
+                            let (headers, _) = b.split_once("\r\n\r\n").unwrap_or_default();
+                            for part in headers.split("\r\n") {
+                                if let Some((k,v)) = part.split_once(": ") {
+                                    ret.headers.insert(k.to_string(), v.to_string());
+                                }
                             }
+                            payload.clear();
+                            return ClientMessage::HttpRequest(ret);
                         }
-                        return ClientMessage::HttpRequest(ret);
                     }
                 }
             }
-        }
-    } else {
-        // probably websocket frame
-        if let Ok(ws) = WebSocketFrame::parse(payload) {
-            if let Ok(string) = String::from_utf8(ws) {
-                let result : Result<ClientGameMessage,_> = serde_json::from_str(&string);
-                match result {
-                    Ok(msg) => {
-                        return ClientMessage::ClientGameMessage(msg);
-                    },
-                    Err(_) => {
-                        //
+            payload.clear();
+            return ClientMessage::Invalid;
+        },
+
+        // probably, websocket
+        Err(_) => match WebSocketFrame::parse(payload) {
+            Ok(ws) => {
+                if let Ok(string) = String::from_utf8(ws) {
+                    let result : Result<ClientGameMessage,_> = serde_json::from_str(&string);
+                    match result {
+                        Ok(msg) => {
+                            ClientMessage::ClientGameMessage(msg)
+                        },
+                        Err(_) => {
+                            ClientMessage::Invalid
+                        }
                     }
+                } else {
+                    // not valid utf8 websocket dataframe
+                    ClientMessage::Invalid
                 }
-            }
-        }
+            },
+            Err(e) if e.kind() == ErrorKind::Interrupted => {
+                // data not fully arrived yet
+                // the only kind of error after trying to parse websocket frame
+                // that we dont clear the buffer
+                println!("Someone is sending websocket dataframes without nagle's alg");
+                ClientMessage::Incomplete
+            },
+            Err(e) => {
+                println!("{}", e);
+                // something wrong, this probably isnt a websocket frame,
+                // so lets reset buffer
+                payload.clear();
+                ClientMessage::Invalid
+            },
+        },
     }
-    return ClientMessage::Invalid
+
 }
 
 #[derive(Debug, Serialize, Deserialize)]

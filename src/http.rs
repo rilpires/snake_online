@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, io::{Error, Write}, str::FromStr};
+use std::{collections::HashMap, fs, io::{Error, Write}, str::FromStr, thread::current};
 
 use base64::Engine;
 use sha1::Digest;
@@ -171,11 +171,11 @@ impl WebSocketFrame {
         frame
     }
 
-    pub fn parse(data: &[u8]) -> Result<Vec<u8>, Error> {
+    pub fn parse(data: &mut Vec<u8>) -> Result<Vec<u8>, Error> {
         if data.len() < 2 {
             return Result::Err(Error::new(
                 std::io::ErrorKind::InvalidData,
-                "Invalid websocket frame",
+                "Invalid websocket frame",                                                   
             ));
         }
         if (data[0] & 0x01) == 0 {
@@ -202,21 +202,22 @@ impl WebSocketFrame {
             payload_start += 4;
         }
 
-        if data.len() != (payload_start + payload_len) {
+        if data.len() < (payload_start + payload_len) {
             return Result::Err(Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid websocket frame",
+                std::io::ErrorKind::Interrupted,
+                "Data not fully arrived yet",
             ));
         }
-
-        let mut payloadvec : Vec<u8> = data[payload_start..(payload_start + payload_len)].to_vec();
-
+        
+        let mut payloadvec : Vec<u8> = data.drain(0..payload_start+payload_len).collect();
+        payloadvec.drain(0..payload_start);
+        
         if masking_bit > 0 {
             payloadvec = payloadvec.iter().enumerate().map(
-                |(index, byte)| byte ^ (mask.to_be_bytes())[index % 4]
+                |(index, byte)| (byte) ^ (mask.to_be_bytes())[index % 4]
             ).collect();
         }
 
-        return Ok(payloadvec);
+        return Ok(payloadvec.to_vec());
     }
 }
