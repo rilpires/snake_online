@@ -13,7 +13,6 @@ pub enum ClientMessage {
 }
 
 pub fn parse_client_message(payload: &mut Vec<u8>) -> ClientMessage {
-    println!("payload len: {}", payload.len());
     match String::from_utf8(payload.to_vec()) {
         // If it is utf8 string, it probably is http request, not websocket frame
         Ok(string) => {
