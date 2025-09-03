@@ -73,6 +73,7 @@ impl GameServer {
                 .expect(
                     format!("Error binding to {}", address).as_str()
                 );
+            println!("Web server listening from {}", address);
             loop {
                 let result = tcp_listener.accept().await;
                 match result {
