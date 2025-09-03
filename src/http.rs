@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, io::{Error, Write}, str::FromStr, thread::current};
+use std::{collections::HashMap, fs, io::{Error, Write}, str::FromStr};
 
 use base64::Engine;
 use sha1::Digest;

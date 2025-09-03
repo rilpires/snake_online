@@ -1,13 +1,13 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tokio::time::interval;
 
-use crate::game::{self, GameState};
+
+use crate::game::{GameState};
 use crate::protocol::{parse_client_message, ServerMessage, *};
 use crate::http::*;
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 
 static MINIMUM_TICK : i32 = 50;
 static MAX_HTTP_BUFFER_LEN : usize = 8192;
@@ -76,7 +76,7 @@ impl GameServer {
             loop {
                 let result = tcp_listener.accept().await;
                 match result {
-                    Ok((mut tcp_stream, addr)) => {
+                    Ok((tcp_stream, addr)) => {
                         println!("New connection from {}", addr.clone());
                         let client_tx = input_tx.clone();
                         tokio::spawn(
@@ -140,11 +140,9 @@ impl GameServer {
         // GAME UPDATE TIMER TICK
         let tick_tx = self.tx.clone();
         let mut game_timer = tokio::time::interval(Duration::from_millis(MINIMUM_TICK as u64));
-        let mut ticks : u64 = 0;
         tokio::spawn( async move {
             loop {
                 game_timer.tick().await;
-                ticks += 1;
                 let _ = tick_tx.send(GameEvent::GameTick);
             }
         });
@@ -270,7 +268,7 @@ impl GameServer {
                 &clientid, 
                 HttpResponse::websocket_handshake(req),
             ).await;
-            self.send_websocket_highscores(&clientid).await;
+            let _ = self.send_websocket_highscores(&clientid).await;
         } else {
             // all the proper router stuff goes here
             // we only have index.html so
@@ -302,7 +300,7 @@ impl GameServer {
         }
         let client_response : Option<ServerMessage> = match (current_game, msg) {
             (_, ClientGameMessage::JoinGame(joingame)) => {
-                        if let Some(id) = &client.game_id {
+                        if let Some(_id) = &client.game_id {
                             // gotta leave
                             client.game_id = None;
                         };

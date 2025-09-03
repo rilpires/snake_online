@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, io::{Error, ErrorKind}, str::FromStr};
+use std::{cmp::min, collections::HashMap, io::ErrorKind, str::FromStr};
 
 use crate::{game::{Direction, GameState, JoinGame}, http::{HttpMethod, HttpRequest, WebSocketFrame}};
 use serde::{Deserialize, Serialize};
