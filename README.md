@@ -1,8 +1,12 @@
-# snake_online
+# snake online
+
+![Screenshot](public/screenshot.png)
 
 A web server implementation of the classic snake game. It was part of my course on learning async Rust, that's why I implemented the entire web stack (HTTP and websocket datagrams parsing directly from TCP streams).
 
 The game runs in the backend, while the frontend is a simple HTML+JS client that connects to the websocket (I made it in godot and exported it into HTML inside public folder).
+
+It is being hosted right [here](https://snakeonline.rilpires.com).
 
 | Environment variable | Default value | Description |
 |----------------------|---------------|-------------|
