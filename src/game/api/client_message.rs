@@ -1,7 +1,8 @@
 use std::{cmp::min, collections::HashMap, io::ErrorKind, str::FromStr};
 
-use crate::{game::{Direction, GameState, JoinGame}, http::{HttpMethod, HttpRequest, WebSocketFrame}};
+use crate::{game::{Direction, GameState, JoinGame}, network::{HttpMethod, HttpRequest, WebSocketFrame}};
 use serde::{Deserialize, Serialize};
+
 
 #[derive(Debug)]
 pub enum ClientMessage {
@@ -92,63 +93,4 @@ pub enum ClientGameMessage {
     Username { username: String},
     #[serde(rename = "ping")]
     Ping,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HighScoreEntry {
-    pub username: String,
-    pub score: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HighScores {
-    pub highscores: HashMap<String, HighScoreEntry>
-}
-impl HighScores {
-    pub fn from_vec(value: &mut Vec<HighScoreEntry>) -> Self {
-        let mut ret = HashMap::new();
-        value.sort_by(
-            |a, b| {b.score.cmp(&a.score)}
-        );
-        for i in 0..min(10, value.len()) {
-            ret.insert(
-                format!("{}", i+1),
-                value.get(i).unwrap().clone(),
-            );
-        }
-        HighScores{
-            highscores: ret
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ServerMessage {
-    #[serde(rename = "game_state")]
-    GameState(GameState),
-    #[serde(rename = "error")]
-    Error { message: String },
-    #[serde(rename = "pong")]
-    Pong,
-    #[serde(rename = "connected")]
-    Connected { client_id: String },
-    #[serde(rename = "highscores")]
-    HighScores (HighScores),
-}
-
-impl ServerMessage {
-    pub fn error(message: &str) -> Self {
-        ServerMessage::Error {
-            message: message.to_string(),
-        }
-    }
-
-    pub fn game_state(state: GameState) -> Self {
-        ServerMessage::GameState(state)
-    }
-
-    pub fn connected(client_id: String) -> Self {
-        ServerMessage::Connected { client_id }
-    }
 }

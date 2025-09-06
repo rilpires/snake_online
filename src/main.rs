@@ -1,4 +1,6 @@
-use snake_online::GameServer;
+mod network;
+mod game;
+use crate::network::GameServer;
 
 #[tokio::main]
 async fn main() {

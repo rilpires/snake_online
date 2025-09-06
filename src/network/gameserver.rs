@@ -2,12 +2,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-
-use crate::game::{GameState};
-use crate::protocol::{parse_client_message, ServerMessage, *};
-use crate::http::*;
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration};
+use std::time::Duration;
+
+use crate::game::*;
+use crate::network::*;
 
 static MINIMUM_TICK : i32 = 50;
 static MAX_HTTP_BUFFER_LEN : usize = 8192;
