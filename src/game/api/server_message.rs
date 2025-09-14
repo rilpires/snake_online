@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 pub enum ServerMessage {
     #[serde(rename = "game_state")]
     GameState(GameState),
+    #[serde(rename = "game_over")]
+    GameOver {client_id: String},
     #[serde(rename = "error")]
     Error { message: String },
     #[serde(rename = "pong")]
@@ -15,7 +17,7 @@ pub enum ServerMessage {
     #[serde(rename = "connected")]
     Connected { client_id: String },
     #[serde(rename = "highscores")]
-    HighScores (HighScores),
+    HighScores { highscores: Vec<HighScoreEntry> },
 }
 
 impl ServerMessage {

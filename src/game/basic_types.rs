@@ -47,6 +47,14 @@ impl Default for Size {
     }
 }
 
+impl Size {
+    pub fn new(w:u32, h:u32) -> Self {
+        Size {
+            width: w as i32,
+            height: h as i32
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Food {
