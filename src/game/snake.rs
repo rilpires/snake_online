@@ -31,31 +31,6 @@ impl Snake {
         self.body[0]
     }
 
-    // Returns true if collided
-    pub fn move_forward(&mut self, box_size: Size, all_snakes: Vec<&Snake> ) -> bool {
-        self.direction = self.next_direction.unwrap_or(self.direction);
-        let new_head = self.head().move_in_direction(self.direction);
-        self.next_direction = None;
-        
-        // moving tail
-        if self.grow_next {
-            self.grow_next = false;
-        } else {
-            self.body.pop();
-        }
-
-        // Now, checking collision on head
-        if (new_head.x < 0) || (new_head.x >= box_size.width) ||
-            (new_head.y < 0) || (new_head.y >= box_size.height) {
-            return true;
-        } else if all_snakes.iter().any(|snake| snake.body.contains(&new_head)) {
-            return true;
-        }
-
-        // moving on
-        self.body.insert(0, new_head);
-        return false;
-    }
 
     pub fn change_direction(&mut self, new_direction: Direction) {
         if !self.is_opposite_direction(new_direction) {

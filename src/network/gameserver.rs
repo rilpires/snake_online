@@ -20,7 +20,6 @@ pub struct GameServer {
     clients: HashMap<String, ClientConnection>, // client_id -> client_connection
     tx: UnboundedSender<GameEvent>,
     rx: UnboundedReceiver<GameEvent>,
-    high_scores: Vec<HighScoreEntry>,
 }
 
 pub struct ClientConnection {
@@ -57,7 +56,6 @@ impl GameServer {
             clients: HashMap::new(),
             tx: tx,
             rx: rx,
-            high_scores: Vec::new(),
         }
     }
 
@@ -276,14 +274,13 @@ impl GameServer {
                             client.game_id = None;
                         };
                         let new_game_id = rand::random::<u64>().to_string();
-                        client.game_id = Some(new_game_id.clone());
-                        self.games.insert(
-                            new_game_id,
-                            GameState::new(
-                                joingame.size.unwrap_or_default().width,
-                                joingame.size.unwrap_or_default().height,
-                            ),
+                        let mut new_game = GameState::new(
+                            joingame.size.unwrap_or_default().width,
+                            joingame.size.unwrap_or_default().height,
                         );
+                        new_game.spawn_new_snake(&clientid, 3);
+                        client.game_id = Some(new_game_id.clone());
+                        self.games.insert(new_game_id, new_game);
                         Some(ServerMessage::Connected { client_id: clientid.clone() })
                     },
             (Some(gamestate), ClientGameMessage::Input { direction }) => {
@@ -317,6 +314,23 @@ impl GameServer {
             (_, ClientGameMessage::Username { username }) => {
                 client.username = Some(username);
                 None
+            },
+            (_, ClientGameMessage::ReqLobbyList) => {
+                Some(
+                    ServerMessage::LobbyList {
+                        lobby_list: self.games.iter().filter(
+                            |(_, game)| {
+                                !game.snakes.is_empty()
+                            } 
+                        ).map(
+                            |(gameid, game)| (
+                                gameid.clone(),
+                                Size::new(game.width as u32, game.height as u32),
+                                game.snakes.len()
+                            ),
+                        ).collect()
+                    }
+                )
             },
             (_, ClientGameMessage::Ping) => Some(ServerMessage::Pong),
             (_, _) => None,

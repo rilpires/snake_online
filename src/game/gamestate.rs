@@ -62,27 +62,66 @@ impl GameState {
         self.food.position = Position::new(0, 0);
     }
 
-    // returns a vector of dead client ids
+    //
+    pub fn spawn_new_snake(&mut self, client_id: &str,  snake_size: usize) {
+        self.snakes.insert(
+            client_id.to_string(),
+            Snake::new(2, 2),
+        );
+    }
+
+    // Returns true if collided
+    pub fn move_snake_forward(&mut self, client_id: &str ) -> bool {
+        
+        let new_head : Position;
+        // moving tail
+        {
+            let snake = self.snakes.get_mut(client_id).unwrap();
+            snake.direction = snake.next_direction.unwrap_or(snake.direction);
+            new_head = snake.head().move_in_direction(snake.direction);
+            snake.next_direction = None;
+            
+            // moving tail
+            if snake.grow_next {
+                snake.grow_next = false;
+            } else {
+                snake.body.pop();
+            }
+        }
+        
+        // Now, checking collision on head
+        if (new_head.x < 0) || (new_head.x >= self.width) ||
+            (new_head.y < 0) || (new_head.y >= self.height) {
+            return true;
+        } else if self.snakes.iter().any(|(_, snake)| snake.body.contains(&new_head)) {
+            return true;
+        }
+
+        // moving on head
+        let snake = self.snakes.get_mut(client_id).unwrap();
+        snake.body.insert(0, new_head);
+        return false;
+    }
+
+    // returns a vector of dead client ids alongside its scores
     pub fn update(&mut self) -> Vec<(String, u32)> {
         let mut snake_eat : Option<String> = None;
         let mut dead_snakes = Vec::new();
-        for (clientid, snake) in self.snakes.iter_mut() {
-            let collided = snake.move_forward(
-                Size::new(self.width as u32, self.height as u32),
-                self.snakes.values().collect()
-            );
-    
+        let clientids : Vec<_> = self.snakes.keys().cloned().collect();
+        for clientid in clientids {
+            let collided = self.move_snake_forward(&clientid);
+            let snake = self.snakes.get(&clientid).unwrap();
             if collided {
                 dead_snakes.push(
-                    (clientid.clone(), (snake.body.len() * 10) as u32)
+                    (clientid.to_string().clone(), (snake.body.len() * 10) as u32)
                 );
             } else if snake.head() == self.food.position {
-                snake_eat = Some(clientid.clone());
+                snake_eat = Some(clientid.to_string());
             }
         }
 
-        for (dead_snake_id, score) in dead_snakes {
-            self.snakes.remove(&dead_snake_id);
+        for (dead_snake_id, score) in &dead_snakes {
+            self.snakes.remove(dead_snake_id);
         }
 
         if let Some(client_id) = snake_eat {

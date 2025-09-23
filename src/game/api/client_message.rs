@@ -53,7 +53,13 @@ pub fn parse_client_message(payload: &mut Vec<u8>) -> ClientMessage {
                         Ok(msg) => {
                             ClientMessage::ClientGameMessage(msg)
                         },
-                        Err(_) => ClientMessage::Invalid
+                        Err(_) => {
+                            println!(
+                                "Invalid string content sent by client: {}",
+                                string,
+                            );
+                            ClientMessage::Invalid
+                        }
                     }
                 } else {
                     // not valid utf8 websocket dataframe
@@ -64,7 +70,6 @@ pub fn parse_client_message(payload: &mut Vec<u8>) -> ClientMessage {
                 // data not fully arrived yet
                 // the only kind of error after trying to parse websocket frame
                 // that we dont clear the buffer
-                println!("Someone is sending websocket dataframes without nagle's alg");
                 ClientMessage::Incomplete
             },
             Err(e) => {
@@ -94,4 +99,6 @@ pub enum ClientGameMessage {
     Username { username: String},
     #[serde(rename = "ping")]
     Ping,
+    #[serde(rename = "req_lobby_list")]
+    ReqLobbyList,
 }

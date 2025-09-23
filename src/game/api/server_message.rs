@@ -18,6 +18,8 @@ pub enum ServerMessage {
     Connected { client_id: String },
     #[serde(rename = "highscores")]
     HighScores { highscores: Vec<HighScoreEntry> },
+    #[serde(rename = "rooms")]
+    LobbyList { lobby_list: Vec<(String, Size, usize)> },
 }
 
 impl ServerMessage {

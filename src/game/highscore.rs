@@ -123,35 +123,39 @@ pub fn store_highscore(
     let mut highscore_file = bincode::deserialize::<HighScoreFile>(file_content.as_slice())
         .unwrap_or(HighScoreFile::new());
     
+    let new_ts = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u32;
+    highscore_file.scores.push(
+        HighScoreEntry {
+            client_id: client.id.clone(),
+            timestamp: new_ts,
+            username: client.username.as_deref().unwrap_or("").clone().to_string(),
+            score: score,
+        },
+    );
+    highscore_file.scores.sort_by(
+        |a,b| b.score.cmp(&a.score)
+    );
     if highscore_file.scores.len() > TOPK_SCORE {
-        let new_ts = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as u32;
-        highscore_file.scores.push(
-            HighScoreEntry {
-                client_id: client.id.clone(),
-                timestamp: new_ts,
-                username: client.username.as_deref().unwrap_or("").clone().to_string(),
-                score: score,
-            },
-        );
-        highscore_file.scores.sort_by(
-            |a,b| a.score.cmp(&b.score)
-        );
         let last = highscore_file.scores.last().unwrap();
         if last.timestamp == new_ts && last.client_id == client.id {
             // ignore, it is not a new topk score
+            return;
+        } else {
+            highscore_file.scores.pop();
         }
     }
-
+    
     let new_vec = bincode::serialize::<HighScoreFile>(&highscore_file).unwrap();
-    std::fs::write("./highscores", new_vec);
+    std::fs::write("./highscores", new_vec);    
+
 }
 
 pub fn retrieve_top_highscore() -> Vec<HighScoreEntry> {
     let file_content = std::fs::read("./highscores").unwrap_or([].to_vec());
-    let mut highscore_file = bincode::deserialize::<HighScoreFile>(file_content.as_slice())
+    let highscore_file = bincode::deserialize::<HighScoreFile>(file_content.as_slice())
         .unwrap_or(HighScoreFile::new());
     return highscore_file.scores;
 }
