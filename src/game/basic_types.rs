@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JoinGame {
     pub game_id: Option<String>,
+    pub interval: u16,
     pub size: Option<Size>,
 }
 

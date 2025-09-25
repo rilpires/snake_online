@@ -93,8 +93,6 @@ pub enum ClientGameMessage {
     Input { direction: Direction },
     #[serde(rename = "reset_game")]
     ResetGame,
-    #[serde(rename = "set_speed")]
-    SetSpeed { interval: u16},
     #[serde(rename = "username")]
     Username { username: String},
     #[serde(rename = "ping")]

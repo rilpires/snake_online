@@ -2,7 +2,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::hash::{self, Hash};
 use std::time::Duration;
 
 use crate::game::*;
@@ -182,16 +184,24 @@ impl GameServer {
             },
             GameEvent::GameTick => {
                 let mut messages_to_send: Vec<(String, ServerMessage)> = vec![];
-
+                let mut dead_games : Vec<String> = vec![];
+                let mut dead_clients : Vec<String> = vec![];
                 for (gameid, game) in self.games.iter_mut() {
-                    game.interval_buffer -= MINIMUM_TICK;
-                    if game.interval_buffer < 0 {
+                    game.interval_buffer += MINIMUM_TICK;
+                    if game.interval_buffer >= game.interval as i32 {
+                        game.interval_buffer = 0;
                         let clients_in_game : Vec<&ClientConnection> = self.clients.values().filter(
                             |client| client.game_id.as_ref() == Some(gameid)
                         ).collect();
+
+                        if clients_in_game.is_empty() {
+                            dead_games.push(gameid.clone());
+                            continue;
+                        }
+
                         for (dead_clientid, score) in game.update() {
                             if self.clients.contains_key(&dead_clientid) {
-                                
+                                dead_clients.push(dead_clientid.clone());
                                 // sending to everyone in this game
                                 for c in clients_in_game.iter() {
                                     messages_to_send.push(
@@ -217,12 +227,19 @@ impl GameServer {
                             )
                         }
 
-                        game.interval_buffer += game.interval as i32;
                     }
+                }
+                for dead_game_id in dead_games {
+                    self.games.remove(&dead_game_id);
                 }
                 for (client_id, message) in messages_to_send {
                     if let Err(e) = self.send_websocket_response(&client_id, &message).await {
                         eprintln!("Failed to send to {}: {}", client_id, e);
+                    }
+                }
+                for dead_client_id in dead_clients {
+                    if let Some(client) = self.clients.get_mut(&dead_client_id) {
+                        client.game_id = None;
                     }
                 }
             },
@@ -269,31 +286,43 @@ impl GameServer {
         }
         let client_response : Option<ServerMessage> = match (current_game, msg) {
             (_, ClientGameMessage::JoinGame(joingame)) => {
-                        if let Some(_id) = &client.game_id {
-                            // gotta leave
-                            client.game_id = None;
-                        };
-                        let new_game_id = rand::random::<u64>().to_string();
-                        let mut new_game = GameState::new(
-                            joingame.size.unwrap_or_default().width,
-                            joingame.size.unwrap_or_default().height,
-                        );
-                        new_game.spawn_new_snake(&clientid, 3);
-                        client.game_id = Some(new_game_id.clone());
-                        self.games.insert(new_game_id, new_game);
-                        Some(ServerMessage::Connected { client_id: clientid.clone() })
-                    },
+                if let Some(_id) = &client.game_id {
+                    if let Some(game) = self.games.get_mut(_id) {
+                        game.snakes.remove(&client.id);
+                    }
+                    client.game_id = None;
+                };
+                let new_game_id = match joingame.game_id {
+                    Some(str) if (!str.is_empty()) => str,
+                    _ => rand::random::<u64>().to_string(),
+                };
+                // creating game if not existent yet
+                if !self.games.contains_key(&new_game_id) {
+                    let mut new_game = GameState::new(
+                        joingame.size.unwrap_or_default().width,
+                        joingame.size.unwrap_or_default().height,
+                    );
+                    new_game.interval = joingame.interval;
+                    self.games.insert(new_game_id.clone(), new_game);
+                }
+                let game = self.games.get_mut(&new_game_id).unwrap();
+                game.spawn_new_snake(&clientid, 3);
+                client.game_id = Some(new_game_id.clone());
+                Some(ServerMessage::Connected { client_id: clientid.clone() })
+            },
             (Some(gamestate), ClientGameMessage::Input { direction }) => {
+                // match direction {
+                //     Direction::Up => println!("Up"),
+                //     Direction::Down => println!("Down"),
+                //     Direction::Left => println!("Left"),
+                //     Direction::Right => println!("Right"),
+                // };
                 gamestate.handle_input(&clientid, direction);
                 None
             },
             (Some(gamestate), ClientGameMessage::ResetGame) => {
                 println!("Resetting game for {}", clientid);
                 gamestate.reset();
-                None
-            },
-            (Some(gamestate), ClientGameMessage::SetSpeed { interval }) => {
-                gamestate.interval = interval;
                 None
             },
 
