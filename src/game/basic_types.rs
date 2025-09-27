@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JoinGame {
     pub game_id: Option<String>,
+    pub interval: Option<u16>,
     pub size: Option<Size>,
 }
 
@@ -47,6 +48,14 @@ impl Default for Size {
     }
 }
 
+impl Size {
+    pub fn new(w:u32, h:u32) -> Self {
+        Size {
+            width: w as i32,
+            height: h as i32
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Food {

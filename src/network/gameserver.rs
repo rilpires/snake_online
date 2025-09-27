@@ -2,7 +2,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::time::Duration;
 
 use crate::game::*;
@@ -20,16 +20,15 @@ pub struct GameServer {
     clients: HashMap<String, ClientConnection>, // client_id -> client_connection
     tx: UnboundedSender<GameEvent>,
     rx: UnboundedReceiver<GameEvent>,
-    interval_buffer : HashMap<String, i32>,
-    high_scores: Vec<HighScoreEntry>,
 }
 
 pub struct ClientConnection {
-    id: String,
+    pub id: String,
     game_id: Option<String>,
     websocket: bool,
     stream: OwnedWriteHalf,
-    username: Option<String>,
+    pub username: Option<String>,
+    awaiting_highscores: Vec<u32>,
 }
 impl ClientConnection {
     pub fn new(id: &str, stream: OwnedWriteHalf ) -> Self {
@@ -39,6 +38,7 @@ impl ClientConnection {
             stream: stream,
             username: None,
             game_id: None,
+            awaiting_highscores: vec![],
         }
     }
 }
@@ -58,8 +58,6 @@ impl GameServer {
             clients: HashMap::new(),
             tx: tx,
             rx: rx,
-            interval_buffer: HashMap::new(),
-            high_scores: Vec::new(),
         }
     }
 
@@ -185,75 +183,73 @@ impl GameServer {
                 );
             },
             GameEvent::GameTick => {
-                let mut updated_gameids = HashSet::new();
+                let mut messages_to_send: Vec<(String, ServerMessage)> = vec![];
+                let mut dead_games : Vec<String> = vec![];
+                let mut dead_clients : Vec<String> = vec![];
+                let mut awaiting_scores = HashMap::new(); // client_id -> score
                 for (gameid, game) in self.games.iter_mut() {
-                    if !self.interval_buffer.contains_key(gameid) {
-                        self.interval_buffer.insert(gameid.clone(), 0);
-                    }
-                    self.interval_buffer
-                            .entry(gameid.clone())
-                            .and_modify(
-                                |old| { *old -= MINIMUM_TICK }
-                            ).or_insert(0);
-                    if *self.interval_buffer.get(gameid).unwrap() < 0 {
-                        let game_over = game.game_over;
-                        game.update();
-                        if game.game_over && !game_over {
-                            // game has done now
-                            // lets register high scores
-                            for (_,client) in self.clients.iter() {
-                                if let Some(username) = &client.username {
-                                    self.high_scores.push(
-                                        HighScoreEntry {
-                                            username: username.to_string(),
-                                            score: game.score as u32
-                                        }
+                    game.interval_buffer += MINIMUM_TICK;
+                    if game.interval_buffer >= game.interval as i32 {
+                        game.interval_buffer = 0;
+                        let clients_in_game : Vec<&ClientConnection> = self.clients.values().filter(
+                            |client| client.game_id.as_ref() == Some(gameid)
+                        ).collect();
+
+                        if clients_in_game.is_empty() {
+                            dead_games.push(gameid.clone());
+                            continue;
+                        }
+
+                        for (dead_clientid, score) in game.update() {
+                            if self.clients.contains_key(&dead_clientid) {
+                                dead_clients.push(dead_clientid.clone());
+                                // sending to everyone in this game
+                                for c in clients_in_game.iter() {
+                                    messages_to_send.push(
+                                        (
+                                            c.id.clone(),
+                                            ServerMessage::GameOver {
+                                                client_id: dead_clientid.clone()
+                                            }
+                                        )
+                                    )
+                                }
+                                let client = self.clients.get(&dead_clientid).unwrap();
+                                if client.username.is_some() {
+                                    store_highscore(
+                                        client,
+                                        score,
                                     );
+                                } else {
+                                    awaiting_scores.insert(dead_clientid, score);
                                 }
                             }
                         }
-                        updated_gameids.insert(gameid.clone());
-                        self.interval_buffer
-                            .entry(gameid.clone())
-                            .and_modify(
-                                |old| { *old += game.interval as i32 }
-                            );
+                        // sending new state to current clietns
+                        for c in clients_in_game {
+                            messages_to_send.push(
+                                (c.id.clone(), ServerMessage::game_state(game.clone()))
+                            )
+                        }
+
                     }
                 }
-                self.interval_buffer.retain(
-                    |k, _| { self.games.contains_key(k)}
-                );
-                let messages_to_send: Vec<(String, Vec<ServerMessage>)> = self.clients
-                    .iter()
-                    .filter_map(|(clientid, client)| {
-                        match &client.game_id {
-                            Some(gameid) if updated_gameids.contains(gameid) => {
-                                if let Some(gamestate) = self.games.get_mut(gameid) {
-                                    if gamestate.game_over && gamestate.already_sent_gameovers_to.contains(clientid) {
-                                        None
-                                    } else {
-                                        let mut ret = Vec::new();
-                                        if gamestate.game_over {
-                                            gamestate.already_sent_gameovers_to.insert(clientid.clone());
-                                            ret.push(ServerMessage::HighScores(HighScores::from_vec(&mut self.high_scores)));
-                                        }
-                                        ret.push(ServerMessage::game_state(gamestate.clone()));
-                                        Some((clientid.clone(), ret))   
-                                    }
-                                } else {
-                                    None
-                                }
-                            },
-                            Some(_) => None,
-                            None => None,
-                        }
-                    })
-                    .collect();
-                for (client_id, messages) in messages_to_send {
-                    for message in messages {
-                        if let Err(e) = self.send_websocket_response(&client_id, &message).await {
-                            eprintln!("Failed to send to {}: {}", client_id, e);
-                        }
+                for it in awaiting_scores.iter() {
+                    if let Some(client) = self.clients.get_mut(it.0) {
+                        client.awaiting_highscores.push(*it.1);
+                    }
+                }
+                for dead_game_id in dead_games {
+                    self.games.remove(&dead_game_id);
+                }
+                for (client_id, message) in messages_to_send {
+                    if let Err(e) = self.send_websocket_response(&client_id, &message).await {
+                        eprintln!("Failed to send to {}: {}", client_id, e);
+                    }
+                }
+                for dead_client_id in dead_clients {
+                    if let Some(client) = self.clients.get_mut(&dead_client_id) {
+                        client.game_id = None;
                     }
                 }
             },
@@ -300,23 +296,46 @@ impl GameServer {
         }
         let client_response : Option<ServerMessage> = match (current_game, msg) {
             (_, ClientGameMessage::JoinGame(joingame)) => {
-                        if let Some(_id) = &client.game_id {
-                            // gotta leave
-                            client.game_id = None;
-                        };
-                        let new_game_id = rand::random::<u64>().to_string();
-                        client.game_id = Some(new_game_id.clone());
-                        self.games.insert(
-                            new_game_id,
-                            GameState::new(
-                                joingame.size.unwrap_or_default().width,
-                                joingame.size.unwrap_or_default().height,
-                            ),
-                        );
-                        Some(ServerMessage::Connected { client_id: clientid.clone() })
-                    },
+                if let Some(_id) = &client.game_id {
+                    // if its the same, do nothing
+                    if joingame.game_id.as_ref() == Some(_id) {
+                        return;
+                    }
+
+                    if let Some(game) = self.games.get_mut(_id) {
+                        game.snakes.remove(&client.id);
+                    }
+                    client.game_id = None;
+                };
+                let new_game_id = match joingame.game_id {
+                    Some(str) if (!str.is_empty()) => str,
+                    _ => rand::random::<u64>().to_string(),
+                };
+                // creating game if not existent yet
+                if !self.games.contains_key(&new_game_id) {
+                    let mut new_game = GameState::new(
+                        joingame.size.unwrap_or_default().width,
+                        joingame.size.unwrap_or_default().height,
+                    );
+                    new_game.interval = joingame.interval.unwrap_or(1000);
+                    self.games.insert(new_game_id.clone(), new_game);
+                }
+                let game = self.games.get_mut(&new_game_id).unwrap();
+                if game.spawn_new_snake(&clientid, 3) {
+                    client.game_id = Some(new_game_id.clone());
+                    Some(ServerMessage::Connected { client_id: clientid.clone() })
+                } else {
+                    None
+                }
+            },
             (Some(gamestate), ClientGameMessage::Input { direction }) => {
-                gamestate.handle_input(direction);
+                // match direction {
+                //     Direction::Up => println!("Up"),
+                //     Direction::Down => println!("Down"),
+                //     Direction::Left => println!("Left"),
+                //     Direction::Right => println!("Right"),
+                // };
+                gamestate.handle_input(&clientid, direction);
                 None
             },
             (Some(gamestate), ClientGameMessage::ResetGame) => {
@@ -324,26 +343,32 @@ impl GameServer {
                 gamestate.reset();
                 None
             },
-            (Some(gamestate), ClientGameMessage::SetSpeed { interval }) => {
-                gamestate.interval = interval;
-                None
-            },
-            // User may be sending username after gameover, so we can register it
-            (Some(gamestate), ClientGameMessage::Username { username }) if (gamestate.game_over) && (client.username == None) => {
-                if None == client.username {
-                    client.username = Some(username.clone());
-                    self.high_scores.push(HighScoreEntry {
-                        username: username,
-                        score: gamestate.score as u32,
-                    });
-                    Some(ServerMessage::HighScores(HighScores::from_vec(&mut self.high_scores)))
-                } else {
-                    None
-                }
-            },
+
             (_, ClientGameMessage::Username { username }) => {
-                client.username = Some(username);
+                if client.username.is_none() {
+                    client.username = Some(username);
+                    for score in &client.awaiting_highscores {
+                        store_highscore(client, *score);
+                    }
+                }
                 None
+            },
+            (_, ClientGameMessage::ReqLobbyList) => {
+                Some(
+                    ServerMessage::LobbyList {
+                        lobby_list: self.games.iter().filter(
+                            |(_, game)| {
+                                !game.snakes.is_empty()
+                            } 
+                        ).map(
+                            |(gameid, game)| (
+                                gameid.clone(),
+                                Size::new(game.width as u32, game.height as u32),
+                                game.snakes.len()
+                            ),
+                        ).collect()
+                    }
+                )
             },
             (_, ClientGameMessage::Ping) => Some(ServerMessage::Pong),
             (_, _) => None,
@@ -366,8 +391,9 @@ impl GameServer {
         Ok(())
     }
     async fn send_websocket_highscores(&mut self, client_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let highscores = ServerMessage::HighScores(HighScores::from_vec(&mut self.high_scores)); 
-        println!("Sending highscores to {}", client_id);
+        let highscores = ServerMessage::HighScores{
+            highscores: retrieve_top_highscore()
+        }; 
         self.send_websocket_response(client_id, &highscores).await
     }
 }

@@ -12,9 +12,3 @@ It is being hosted right [here](https://snakeonline.rilpires.com).
 |----------------------|---------------|-------------|
 | APP_PORT             | 8080          | The port the application will listen on |
 | APP_HOST             | 0.0.0.0       | The host the application will bind to |
-
-
-## TODOs
-TODOs I'd like to implement:
-- persistent storage of highscores (maybe with sqlite)
-- multiple rooms & snakes inside the same game

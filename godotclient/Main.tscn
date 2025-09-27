@@ -1,0 +1,357 @@
+[gd_scene load_steps=6 format=3 uid="uid://cen3pjyfteisy"]
+
+[ext_resource type="PackedScene" uid="uid://cml0t2u6nctmm" path="res://tilemap.tscn" id="1_h2giv"]
+
+[sub_resource type="GDScript" id="GDScript_uce7r"]
+script/source = "extends PanelContainer
+
+@onready var line_edit = find_child(\"LineEdit\") as LineEdit
+@onready var create_button = find_child(\"CreateButton\") as Button
+@onready var width_edit = find_child(\"width\") as SpinBox;
+@onready var height_edit = find_child(\"height\") as SpinBox;
+@onready var interval_slider = find_child(\"interval_slider\") as Range;
+
+func _ready():
+	create_button.pressed.connect(create_button_pressed)
+	interval_slider.value_changed.connect(
+		func(value): Globals.focus_game_input()
+	)
+
+
+func create_button_pressed():
+	ClientController.send_packet({
+		type = \"join_game\",
+		game_id = line_edit.text,
+		interval = 2050 - interval_slider.value,
+		size = {
+			width = width_edit.value,
+			height = height_edit.value
+		}
+	})
+	Globals.focus_game_input()
+
+"
+
+[sub_resource type="GDScript" id="GDScript_hghyr"]
+script/source = "extends PanelContainer
+
+func _ready():
+	Globals.sub(self, \"rooms\");
+	get_node('Timer').timeout.connect(func():
+		ClientController.send_packet({
+			type = \"req_lobby_list\"
+		})
+	)
+
+func rooms(current_rooms_data:Dictionary) :
+	var arr = current_rooms_data.lobby_list as Array
+	Globals.replicate_entry(
+		\"game_room_entry\",
+		arr,
+		func (new_inst:Button, d):
+			var room_size = Vector2i( d[1]['width'] , d[1]['height'] )
+			var room_title_label = new_inst.find_child('room_title', true, false) as Label
+			var room_size_label = new_inst.find_child('room_size', true, false) as Label
+			room_title_label.text = \"Room:\\n%s\" % [d[0]]
+			room_size_label.text = \"%dx%d\\n%d/8\" % [room_size.x, room_size.y, d[2]]
+			new_inst.pressed.connect(func():
+				ClientController.send_packet({
+					type = \"join_game\",
+					game_id = d[0]
+				})
+			)
+			return new_inst
+	)
+"
+
+[sub_resource type="GDScript" id="GDScript_yx5ka"]
+script/source = "extends VBoxContainer
+
+@onready var title_label = find_child(\"Label\") as Label;
+@onready var line_edit = find_child(\"LineEdit\") as LineEdit;
+@onready var name_label = find_child(\"current_username\") as Label;
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	name_label.hide()
+	line_edit.text_submitted.connect(
+		func(new_text:String):
+			name_label.text = \"Username: \"+new_text;
+			name_label.show();
+			line_edit.hide();
+			title_label.hide();
+			if (new_text.length() > 100):
+				new_text = new_text.substr(0, 100)
+			ClientController.send_packet({
+				type = \"username\",
+				username = new_text
+			})
+	)
+
+"
+
+[sub_resource type="GDScript" id="GDScript_3maqr"]
+script/source = "extends PanelContainer
+
+
+# Called when the node enters the scene tree for the first time.
+func _ready():
+	Globals.sub(self, \"highscores\");
+
+func highscores(highscores_data:Dictionary) :
+	var arr = highscores_data.highscores as Array
+	for i in range(0, arr.size()):
+		arr[i]['rank'] = i+1
+	Globals.replicate_entry(
+		\"high_score_entry\",
+		arr,
+		func (new_inst, d):
+			new_inst.get_node(\"pos\").text = \"#%d %s\" % [d.rank, d.username if (d.username.length()>0) else \"?\" ]
+			new_inst.get_node(\"score\").text = \"%d\" % [d.score]
+			return new_inst
+	)
+
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _process(delta):
+	pass
+"
+
+[node name="Root" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="LeftColumn" type="VBoxContainer" parent="HBoxContainer"]
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+theme_override_constants/separation = 32
+
+[node name="CreateRoomPainel" type="PanelContainer" parent="HBoxContainer/LeftColumn"]
+layout_mode = 2
+script = SubResource("GDScript_uce7r")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/LeftColumn/CreateRoomPainel"]
+layout_mode = 2
+
+[node name="LineEdit" type="LineEdit" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer"]
+layout_mode = 2
+focus_mode = 1
+placeholder_text = "Room Name"
+max_length = 16
+
+[node name="SizeEditor" type="HBoxContainer" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer/SizeEditor"]
+layout_mode = 2
+text = "W:"
+
+[node name="width" type="SpinBox" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer/SizeEditor"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 8.0
+max_value = 128.0
+value = 16.0
+rounded = true
+
+[node name="Label3" type="Label" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer/SizeEditor"]
+layout_mode = 2
+text = "H:"
+
+[node name="height" type="SpinBox" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer/SizeEditor"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 8.0
+max_value = 128.0
+value = 16.0
+rounded = true
+
+[node name="SpeedEditor" type="HBoxContainer" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer/SpeedEditor"]
+layout_mode = 2
+text = "Speed:"
+
+[node name="interval_slider" type="HSlider" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer/SpeedEditor"]
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 0
+min_value = 50.0
+max_value = 2000.0
+step = 20.0
+value = 1910.0
+rounded = true
+
+[node name="CreateButton" type="Button" parent="HBoxContainer/LeftColumn/CreateRoomPainel/VBoxContainer"]
+layout_mode = 2
+focus_mode = 0
+text = "Create Room"
+
+[node name="CurrentRoomsTable" type="PanelContainer" parent="HBoxContainer/LeftColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+script = SubResource("GDScript_hghyr")
+
+[node name="Timer" type="Timer" parent="HBoxContainer/LeftColumn/CurrentRoomsTable"]
+autostart = true
+
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/LeftColumn/CurrentRoomsTable"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="HBoxContainer/LeftColumn/CurrentRoomsTable/VBoxContainer"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+text = "Current Rooms"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="HBoxContainer/LeftColumn/CurrentRoomsTable/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+vertical_scroll_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/LeftColumn/CurrentRoomsTable/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="entry" type="Button" parent="HBoxContainer/LeftColumn/CurrentRoomsTable/VBoxContainer/ScrollContainer/VBoxContainer" groups=["game_room_entry"]]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="HBoxContainer/LeftColumn/CurrentRoomsTable/VBoxContainer/ScrollContainer/VBoxContainer/entry"]
+layout_mode = 1
+anchors_preset = 14
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = 2.0
+offset_top = -22.0
+offset_right = -2.0
+offset_bottom = 27.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+mouse_default_cursor_shape = 2
+
+[node name="room_title" type="Label" parent="HBoxContainer/LeftColumn/CurrentRoomsTable/VBoxContainer/ScrollContainer/VBoxContainer/entry/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 2.0
+mouse_default_cursor_shape = 2
+text = "Room:
+123123123aaaaaaaaaaaaaaaa"
+clip_text = true
+
+[node name="VSeparator" type="VSeparator" parent="HBoxContainer/LeftColumn/CurrentRoomsTable/VBoxContainer/ScrollContainer/VBoxContainer/entry/HBoxContainer"]
+layout_mode = 2
+mouse_filter = 2
+mouse_default_cursor_shape = 2
+
+[node name="room_size" type="Label" parent="HBoxContainer/LeftColumn/CurrentRoomsTable/VBoxContainer/ScrollContainer/VBoxContainer/entry/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_default_cursor_shape = 2
+text = "14x14
+1/8"
+horizontal_alignment = 1
+clip_text = true
+
+[node name="VBoxContainer2" type="VBoxContainer" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="HBoxContainer/VBoxContainer2"]
+layout_mode = 2
+text = "Snake Online"
+horizontal_alignment = 1
+
+[node name="SubViewportContainer" type="SubViewportContainer" parent="HBoxContainer/VBoxContainer2"]
+layout_mode = 2
+size_flags_vertical = 3
+focus_mode = 0
+stretch = true
+
+[node name="SubViewport" type="SubViewport" parent="HBoxContainer/VBoxContainer2/SubViewportContainer" groups=["GameViewport"]]
+disable_3d = true
+handle_input_locally = false
+size = Vector2i(729, 621)
+render_target_update_mode = 4
+
+[node name="Camera2D" type="Camera2D" parent="HBoxContainer/VBoxContainer2/SubViewportContainer/SubViewport"]
+position_smoothing_enabled = true
+
+[node name="Node2D" parent="HBoxContainer/VBoxContainer2/SubViewportContainer/SubViewport" instance=ExtResource("1_h2giv")]
+
+[node name="RightColumn" type="VBoxContainer" parent="HBoxContainer"]
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+theme_override_constants/separation = 13
+
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/RightColumn"]
+custom_minimum_size = Vector2(0, 190)
+layout_mode = 2
+script = SubResource("GDScript_yx5ka")
+
+[node name="Label" type="Label" parent="HBoxContainer/RightColumn/VBoxContainer"]
+layout_mode = 2
+text = "Input your name for
+highscore accounting:"
+
+[node name="LineEdit" type="LineEdit" parent="HBoxContainer/RightColumn/VBoxContainer"]
+layout_mode = 2
+
+[node name="current_username" type="Label" parent="HBoxContainer/RightColumn/VBoxContainer"]
+custom_minimum_size = Vector2(0, 100)
+layout_mode = 2
+text = "Username: aaaaaaaaa zx asd"
+autowrap_mode = 1
+
+[node name="HighScoresBoard" type="PanelContainer" parent="HBoxContainer/RightColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+script = SubResource("GDScript_3maqr")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/RightColumn/HighScoresBoard"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="HBoxContainer/RightColumn/HighScoresBoard/VBoxContainer"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+text = "Highscores"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="HBoxContainer/RightColumn/HighScoresBoard/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+vertical_scroll_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/RightColumn/HighScoresBoard/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="entry" type="HBoxContainer" parent="HBoxContainer/RightColumn/HighScoresBoard/VBoxContainer/ScrollContainer/VBoxContainer" groups=["high_score_entry"]]
+layout_mode = 2
+
+[node name="pos" type="Label" parent="HBoxContainer/RightColumn/HighScoresBoard/VBoxContainer/ScrollContainer/VBoxContainer/entry"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "#1: Fulano"
+
+[node name="VSeparator" type="VSeparator" parent="HBoxContainer/RightColumn/HighScoresBoard/VBoxContainer/ScrollContainer/VBoxContainer/entry"]
+layout_mode = 2
+
+[node name="score" type="Label" parent="HBoxContainer/RightColumn/HighScoresBoard/VBoxContainer/ScrollContainer/VBoxContainer/entry"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "123"

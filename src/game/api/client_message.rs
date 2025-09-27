@@ -1,6 +1,7 @@
-use std::{cmp::min, collections::HashMap, io::ErrorKind, str::FromStr};
+use std::{collections::HashMap, io::ErrorKind, str::FromStr};
 
-use crate::{game::{Direction, GameState, JoinGame}, network::{HttpMethod, HttpRequest, WebSocketFrame}};
+use crate::game::*;
+use crate::network::*;
 use serde::{Deserialize, Serialize};
 
 
@@ -52,7 +53,13 @@ pub fn parse_client_message(payload: &mut Vec<u8>) -> ClientMessage {
                         Ok(msg) => {
                             ClientMessage::ClientGameMessage(msg)
                         },
-                        Err(_) => ClientMessage::Invalid
+                        Err(_) => {
+                            println!(
+                                "Invalid string content sent by client: {}",
+                                string,
+                            );
+                            ClientMessage::Invalid
+                        }
                     }
                 } else {
                     // not valid utf8 websocket dataframe
@@ -63,7 +70,6 @@ pub fn parse_client_message(payload: &mut Vec<u8>) -> ClientMessage {
                 // data not fully arrived yet
                 // the only kind of error after trying to parse websocket frame
                 // that we dont clear the buffer
-                println!("Someone is sending websocket dataframes without nagle's alg");
                 ClientMessage::Incomplete
             },
             Err(e) => {
@@ -87,10 +93,10 @@ pub enum ClientGameMessage {
     Input { direction: Direction },
     #[serde(rename = "reset_game")]
     ResetGame,
-    #[serde(rename = "set_speed")]
-    SetSpeed { interval: u16},
     #[serde(rename = "username")]
     Username { username: String},
     #[serde(rename = "ping")]
     Ping,
+    #[serde(rename = "req_lobby_list")]
+    ReqLobbyList,
 }
