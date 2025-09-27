@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, time::SystemTime};
+use std::{time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -131,7 +131,7 @@ pub fn store_highscore(
         HighScoreEntry {
             client_id: client.id.clone(),
             timestamp: new_ts,
-            username: client.username.as_deref().unwrap_or("").clone().to_string(),
+            username: client.username.as_deref().unwrap_or("").to_string(),
             score: score,
         },
     );
@@ -149,7 +149,7 @@ pub fn store_highscore(
     }
     
     let new_vec = bincode::serialize::<HighScoreFile>(&highscore_file).unwrap();
-    std::fs::write("./highscores", new_vec);    
+    let _ = std::fs::write("./highscores", new_vec);    
 
 }
 

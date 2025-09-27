@@ -14,14 +14,24 @@ pub struct Snake {
 }
 
 impl Snake {
-    pub fn new(start_x: i32, start_y: i32) -> Self {
+    pub fn new(
+        dir: Direction,
+        head: Position,
+        size: usize,
+    ) -> Self {
+        let mut body = Vec::with_capacity(size);
+        for i in 0..size {
+            let pos = match dir {
+                Direction::Up => Position::new(head.x, head.y + i as i32),
+                Direction::Down => Position::new(head.x, head.y - i as i32),
+                Direction::Left => Position::new(head.x + i as i32, head.y),
+                Direction::Right => Position::new(head.x - i as i32, head.y),
+            };
+            body.push(pos);
+        }
         Snake {
-            body: vec![
-                Position::new(start_x, start_y),
-                Position::new(start_x - 1, start_y),
-                Position::new(start_x - 2, start_y),
-            ],
-            direction: Direction::Right,
+            body,
+            direction: dir,
             next_direction: None,
             grow_next: false,
         }

@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
+use rand::random_range;
 use serde::{Deserialize, Serialize};
 
 use crate::game::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameState {
-    pub snakes: HashMap<String, Snake>,
+    pub snakes: HashMap<String, Snake>, // per client_id
     pub food: Food,
     pub score: i32,
     pub width: i32,
@@ -17,8 +18,6 @@ pub struct GameState {
     pub interval_buffer: i32,
     #[serde(skip_serializing)]
     pub already_sent_gameovers_to : HashSet<String>,
-    #[serde(skip_serializing)]
-    pub high_scores: HashMap<String, u32> // per client_id
 }
 
 impl GameState {
@@ -32,7 +31,6 @@ impl GameState {
             interval: 1500,
             interval_buffer: 0,
             already_sent_gameovers_to: HashSet::new(),
-            high_scores: HashMap::new(),
         };
         game.spawn_food();
         game
@@ -63,11 +61,71 @@ impl GameState {
     }
 
     //
-    pub fn spawn_new_snake(&mut self, client_id: &str,  snake_size: usize) {
-        self.snakes.insert(
-            client_id.to_string(),
-            Snake::new(2, 2),
-        );
+    pub fn spawn_new_snake(&mut self, client_id: &str,  snake_size: usize) -> bool {
+        // gotta find a valid position for it...
+        // rules:
+        // 1 - it will spawn as a straight line
+        // 2 - do not collide with any food and any other snake
+        // 3 - the next 4 squares do not contain any snake or wall
+        // so we basiaclly should find a valid "4+snake_size" straight line to fit
+        // the alghorithm is kinda simple: just randomly test up until 100 guesses
+        // if even then not found, return false
+        
+        // self.snakes.insert(client_id.to_string(), Snake::new(2, 2));
+        // return true;
+
+        let directions = [Direction::Up, Direction::Down, Direction::Left, Direction::Right];
+        let snake_positions: HashSet<Position> = self.snakes
+            .values()
+            .flat_map(|snake| snake.body.iter().cloned())
+            .collect();
+
+        for _ in 0..100 {
+            let start_x = random_range(0..self.width);
+            let start_y = random_range(0..self.height);
+            let direction = directions[random_range(0..4)];
+            
+            let mut valid_spawn = true;
+            let mut test_positions = Vec::new();
+            
+            for i in 0..(snake_size + 4) {
+                let test_pos = match direction {
+                    Direction::Up => Position::new(start_x, start_y - i as i32),
+                    Direction::Down => Position::new(start_x, start_y + i as i32),
+                    Direction::Left => Position::new(start_x - i as i32, start_y),
+                    Direction::Right => Position::new(start_x + i as i32, start_y),
+                };
+                
+                if test_pos.x < 0 || test_pos.x >= self.width || 
+                   test_pos.y < 0 || test_pos.y >= self.height {
+                    valid_spawn = false;
+                    break;
+                }
+                
+                if snake_positions.contains(&test_pos) || test_pos == self.food.position {
+                    valid_spawn = false;
+                    break;
+                }
+                
+                test_positions.push(test_pos);
+            }
+            if valid_spawn {
+                let mut snake_body = Vec::new();
+                for i in 0..snake_size {
+                    snake_body.push(test_positions[i]);
+                }
+                
+                let new_snake = Snake::new(
+                    direction,
+                    Position::new(snake_body[snake_size-1].x, snake_body[snake_size-1].y),
+                    snake_size,
+                );
+
+                self.snakes.insert(client_id.to_string(), new_snake);
+                return true;
+            }
+        }
+        return false;
     }
 
     // Returns true if collided
@@ -120,7 +178,7 @@ impl GameState {
             }
         }
 
-        for (dead_snake_id, score) in &dead_snakes {
+        for (dead_snake_id, _score) in &dead_snakes {
             self.snakes.remove(dead_snake_id);
         }
 
